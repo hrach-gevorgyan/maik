@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.flowOn
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.util.zip.ZipFile
+import java.io.RandomAccessFile
 
 /** Prompt formats differ per family; the bundles ship tokenizers, not templates. */
 enum class Template { CHATML, PHI, DEEPSEEK, ZEPHYR }
@@ -39,28 +39,13 @@ data class ModelSpec(
     val contextTokens: Int,
     val template: Template = Template.CHATML,
     /** Emits `<think>` blocks before answering. Parsing copes either way. */
-    val reasoning: Boolean = false,
-    /** Shown first, and framed as a quick check rather than a real assistant. */
-    val isProbe: Boolean = false
+    val reasoning: Boolean = false
 ) {
     val fileName: String get() = "$id.task"
     val approxMb: Long get() = approxBytes / 1024 / 1024
 }
 
 object Models {
-    val SMOL_135M = ModelSpec(
-        id = "smollm-135m-q8",
-        label = "SmolLM 135M",
-        params = "135M · int8",
-        blurb = "Downloads in seconds and proves the app works. Too small to be useful — " +
-            "move up once you've seen it answer.",
-        url = "https://huggingface.co/litert-community/SmolLM-135M-Instruct/" +
-            "resolve/main/SmolLM-135M-Instruct_multi-prefill-seq_q8_ekv1280.task",
-        approxBytes = 166_754_726L,
-        contextTokens = 1280,
-        isProbe = true
-    )
-
     val DEEPSEEK_1_5B = ModelSpec(
         id = "deepseek-r1-distill-1.5b-q8",
         label = "DeepSeek-R1 1.5B",
@@ -98,14 +83,25 @@ object Models {
         template = Template.ZEPHYR
     )
 
-    val ALL = listOf(SMOL_135M, TINYLLAMA, DEEPSEEK_1_5B, PHI_4_MINI)
+    val ALL = listOf(DEEPSEEK_1_5B, TINYLLAMA, PHI_4_MINI)
+
+    val DEFAULT = DEEPSEEK_1_5B
 
     /**
-     * The 159 MB probe. After three releases that downloaded gigabytes and then
-     * failed to load, the first thing a new install should do is prove the pipeline
-     * works — in under a minute, not after 2 GB.
+     * Not offered in the app: a 159 MB bundle used by the instrumented golden test,
+     * which downloads it and runs a real generation on an emulator. Small enough to
+     * make that check affordable on every push.
      */
-    val DEFAULT = SMOL_135M
+    val GOLDEN_TEST_MODEL = ModelSpec(
+        id = "smollm-135m-q8",
+        label = "SmolLM 135M",
+        params = "135M · int8",
+        blurb = "Test fixture.",
+        url = "https://huggingface.co/litert-community/SmolLM-135M-Instruct/" +
+            "resolve/main/SmolLM-135M-Instruct_multi-prefill-seq_q8_ekv1280.task",
+        approxBytes = 166_754_726L,
+        contextTokens = 1280
+    )
 
     fun byId(id: String?): ModelSpec = ALL.firstOrNull { it.id == id } ?: DEFAULT
 }
@@ -131,9 +127,11 @@ class ModelStore(context: Context) {
     var thinking: Boolean = prefs.getBoolean("thinking", true)
         private set
 
+    // Dark is the design; following the system would hand most users the light
+    // scheme on first launch, which is not what maik is drawn for.
     var themeMode: ThemeMode =
-        runCatching { ThemeMode.valueOf(prefs.getString("theme", null) ?: "SYSTEM") }
-            .getOrDefault(ThemeMode.SYSTEM)
+        runCatching { ThemeMode.valueOf(prefs.getString("theme", null) ?: "DARK") }
+            .getOrDefault(ThemeMode.DARK)
         private set
 
     var systemPrompt: String = prefs.getString("system", DEFAULT_SYSTEM_PROMPT)
@@ -265,23 +263,33 @@ class ModelStore(context: Context) {
         const val MIN_PLAUSIBLE_BYTES = 20L * 1024 * 1024
 
         /**
-         * Returns a human-readable problem, or null when the bundle looks loadable.
-         */
+          * Returns a human-readable problem, or null when the bundle looks loadable.
+          *
+          * These archives begin with four bytes before the ZIP header, which
+          * `java.util.zip.ZipFile` may refuse even though the runtime reads them
+          * happily. So rather than parse the container, scan the tail — the central
+          * directory lists every member by name and always sits at the end.
+          */
         fun validate(file: File): String? = try {
-            ZipFile(file).use { zip ->
-                val names = zip.entries().asSequence().map { it.name }.toSet()
+            RandomAccessFile(file, "r").use { raf ->
+                val length = raf.length()
+                val window = minOf(length, 1L shl 20).toInt()
+                raf.seek(length - window)
+                val buffer = ByteArray(window)
+                raf.readFully(buffer)
+                val tail = String(buffer, Charsets.ISO_8859_1)
                 when {
-                    REQUIRED_ENTRY !in names ->
+                    !tail.contains(REQUIRED_ENTRY) ->
                         "That file isn't a usable model — it has no tokenizer inside."
 
-                    WEIGHTS_ENTRY !in names ->
+                    !tail.contains(WEIGHTS_ENTRY) ->
                         "That file isn't a usable model — the weights are missing."
 
                     else -> null
                 }
             }
         } catch (_: Exception) {
-            "The downloaded file is damaged."
+            "The downloaded file could not be read."
         }
 
         const val REQUIRED_ENTRY = "TOKENIZER_MODEL"

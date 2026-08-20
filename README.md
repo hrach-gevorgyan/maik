@@ -94,7 +94,7 @@ that the radio is never touched again. `INTERNET` exists for that one download a
 nothing else.
 
 <table>
-<tr><td><b>Default model</b></td><td>SmolLM 135M · 159 MB · a deliberate first step</td></tr>
+<tr><td><b>Default model</b></td><td>DeepSeek-R1 1.5B · 1.7 GB</td></tr>
 <tr><td><b>Runtime</b></td><td><code>com.google.mediapipe:tasks-genai</code>, LiteRT-LM bundles</td></tr>
 <tr><td><b>Context</b></td><td>4096 tokens</td></tr>
 <tr><td><b>Runs on</b></td><td>Any ARM64 Android 8.0+ phone. Yes, including your S24 Ultra.</td></tr>
@@ -107,9 +107,8 @@ rules out most of the obvious names.
 
 | Model | Params | Download | License | Character |
 |---|---|---|---|---|
-| **SmolLM 135M** *(default)* | 135M | 159 MB | Apache 2.0 | Proves the app works in under a minute. Not a real assistant |
+| **DeepSeek-R1 1.5B** *(default)* | 1.5B | 1.7 GB | MIT | Thinks before answering, and shows the working |
 | **TinyLlama 1.1B** | 1.1B | 1.1 GB | Apache 2.0 | Plain, but quick and undemanding |
-| **DeepSeek-R1 1.5B** | 1.5B | 1.7 GB | MIT | Thinks before answering, and shows the working |
 | **Phi-4-mini** | 3.8B | 3.7 GB | MIT | The most capable that will run on a phone |
 
 Switch from the chat header or in Settings. Each model stays on disk once fetched,
@@ -119,17 +118,16 @@ and each conversation remembers the one it started with.
 having — the whole Gemma family, Llama, Gemma 2 — is gated behind a Hugging Face
 sign-in, which would put an account wall in front of first launch.
 
-<details>
-<summary><b>Why the default is deliberately too small to be useful</b></summary>
+### The golden test
 
-<br>
+Three releases shipped models the engine could not read. Unit tests cannot catch
+that: the failure only exists where a real bundle meets a real runtime.
 
-Three releases shipped models that downloaded gigabytes and then failed to load. The
-default is now a 159 MB bundle that finishes in under a minute, so the first thing a
-new install does is prove the pipeline works end to end. Move up from Settings once
-you have seen it answer.
-
-</details>
+So [`GoldenTest.kt`](app/src/androidTest/java/com/maik/app/GoldenTest.kt) boots an
+emulator in CI, downloads an actual model, loads it, and makes it answer a question.
+**A release cannot publish unless it passes.** It uses a 159 MB fixture so running it
+on every push stays affordable — same format, same loader, same generation path,
+smaller weights.
 
 <details>
 <summary><b>Why these four, and not the obvious names?</b></summary>
@@ -285,7 +283,7 @@ your chats, not the app — it fails to an empty list rather than a crash loop.
 ## Requirements
 
 - Android **8.0 (API 26)** or newer
-- ~200 MB free storage for the default model, more for the larger ones
+- ~2 GB free storage for the default model
 - An **ARM64** device (everything since roughly 2016)
 - Android Studio Ladybug+ / JDK 17+
 - **No special hardware. No allowlist. No AICore.**

@@ -1,6 +1,7 @@
 package com.maik.app
 
 import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,7 +34,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
@@ -96,19 +99,15 @@ fun ConversationListScreen(vm: ChatViewModel) {
                     itemsIndexed(
                         vm.visibleConversations,
                         key = { _, convo -> convo.id }
-                    ) { index, convo ->
-                        // Only the first screenful is staggered; past that the delay
-                        // would be a wait rather than a flourish.
-                        RisesIn(key = convo.id, delayMillis = (index * 35).coerceAtMost(280)) {
-                            ConversationRow(
-                                convo = convo,
-                                onOpen = { vm.open(convo.id) },
-                                onLongPress = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    menuFor = convo
-                                }
-                            )
-                        }
+                    ) { _, convo ->
+                        ConversationRow(
+                            convo = convo,
+                            onOpen = { vm.open(convo.id) },
+                            onLongPress = {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                menuFor = convo
+                            }
+                        )
                         HorizontalLine()
                     }
                 }
@@ -267,14 +266,18 @@ fun SetupScreen(vm: ChatViewModel) {
     val scheme = MaterialTheme.colorScheme
     val spec = vm.target
     var warnMetered by remember { mutableStateOf(false) }
+    var explainNotifications by remember { mutableStateOf(false) }
 
-    // Asked only when a download is about to start, and only because the progress
-    // notification needs it. Nothing greets a first-time user with a permission box.
     val notifications = notificationRequester()
 
-    fun begin() {
-        notifications()
+    fun startNow() {
         vm.startDownload()
+    }
+
+    // Android's own permission box says nothing about why. Explain first, in our
+    // words, then ask — and only at the moment a download is actually starting.
+    fun begin() {
+        if (notifications == null) startNow() else explainNotifications = true
     }
 
     Column(
@@ -306,10 +309,7 @@ fun SetupScreen(vm: ChatViewModel) {
                     }
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        if (spec.isProbe)
-                            "Small on purpose — it proves everything works before you " +
-                                "spend gigabytes on a better one."
-                        else "Wi-Fi recommended. Nothing you type is ever uploaded.",
+                        "Wi-Fi recommended. Nothing you type is ever uploaded.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = scheme.onSurfaceVariant.copy(alpha = 0.35f)
                     )
@@ -379,6 +379,40 @@ fun SetupScreen(vm: ChatViewModel) {
 
         Spacer(Modifier.height(24.dp))
         QuietAction("Back", vm::openList)
+    }
+
+    if (explainNotifications) {
+        AlertDialog(
+            onDismissRequest = {
+                explainNotifications = false
+                startNow()
+            },
+            containerColor = scheme.surfaceVariant,
+            title = { DialogTitle("Show download progress?") },
+            text = {
+                Text(
+                    "${spec.approxMb} MB takes a while. A notification lets you watch " +
+                        "it fill up and cancel it without coming back here — and it is " +
+                        "the only notification maik will ever post.\n\n" +
+                        "Say no and the download still runs exactly the same.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    explainNotifications = false
+                    notifications?.invoke()
+                    startNow()
+                }) { Text("Show progress", color = scheme.primary) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    explainNotifications = false
+                    startNow()
+                }) { Text("Not now", color = scheme.onSurfaceVariant) }
+            }
+        )
     }
 
     if (warnMetered) {
@@ -467,13 +501,23 @@ private fun BrokenState(vm: ChatViewModel, stage: Stage.Broken, onRefetch: () ->
 /* ================= small pieces ================= */
 
 /**
- * Requests notification permission on demand. Returns a function to call at the
- * moment the permission is needed — never on first launch, where a permission box
- * before any explanation is just noise.
+ * Returns a way to ask for notification permission, or null when there is nothing
+ * to ask for — either the platform predates the permission, or it is already
+ * granted. Callers use null to mean "skip the explanation entirely".
  */
 @Composable
-private fun notificationRequester(): () -> Unit {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return {}
+private fun notificationRequester(): (() -> Unit)? {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return null
+
+    val context = LocalContext.current
+    val alreadyGranted = remember {
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.POST_NOTIFICATIONS
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+    if (alreadyGranted) return null
+
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }

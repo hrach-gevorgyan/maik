@@ -87,17 +87,24 @@ class ModelCatalogTest {
         assertEquals(Models.DEFAULT, Models.byId(null))
         // Chats pinned to models dropped from the catalogue must still open.
         assertEquals(Models.DEFAULT, Models.byId("qwen2.5-1.5b-instruct-q8-4k"))
+        assertEquals(Models.DEFAULT, Models.byId("smollm-135m-q8"))
         assertEquals(Models.PHI_4_MINI, Models.byId(Models.PHI_4_MINI.id))
     }
 
     @Test
-    fun `the default is the smallest, so a first run proves itself cheaply`() {
-        assertEquals(Models.ALL.minByOrNull { it.approxBytes }, Models.DEFAULT)
-        assertTrue("the default should be flagged as a quick check", Models.DEFAULT.isProbe)
+    fun `the default is one of the offered models`() {
+        assertTrue(Models.DEFAULT in Models.ALL)
     }
 
     @Test
-    fun `only the probe is marked as one`() {
-        assertEquals(1, Models.ALL.count { it.isProbe })
+    fun `the golden test fixture obeys the same rules as the catalogue`() {
+        // It is not offered in the app, but the instrumented test loads it for
+        // real — so a broken fixture would silently disable that whole check.
+        val fixture = Models.GOLDEN_TEST_MODEL
+        assertTrue(fixture.url, fixture.url.endsWith(".task"))
+        assertTrue(fixture.url, !fixture.url.contains("-gpu.") && !fixture.url.contains("_gpu."))
+        assertTrue(fixture.url, fixture.url.startsWith("https://huggingface.co/litert-community/"))
+        assertEquals(1280, fixture.contextTokens)
+        assertTrue(fixture.id !in Models.ALL.map { it.id })
     }
 }

@@ -34,8 +34,8 @@ import kotlinx.coroutines.delay
  * durations are short enough that a fast tap never waits on an animation.
  */
 object Motion {
-    const val QUICK = 160
-    const val NORMAL = 260
+    const val QUICK = 110
+    const val NORMAL = 190
 
     /** For anything that should feel physical rather than timed. */
     fun <T> springy() = spring<T>(
@@ -71,7 +71,11 @@ fun Modifier.pressable(source: MutableInteractionSource): Modifier = composed {
     graphicsLayer { scaleX = scale; scaleY = scale }
 }
 
-/** A new message rises into place rather than appearing fully formed. */
+/**
+  * A short lift into place. Deliberately restrained: an entrance you notice twice
+  * is an entrance that is too slow, and a list that assembles itself piece by piece
+  * reads as the app struggling rather than as polish.
+  */
 @Composable
 fun RisesIn(
     key: Any?,
@@ -86,7 +90,7 @@ fun RisesIn(
     AnimatedVisibility(
         visible = shown,
         enter = fadeIn(tween(Motion.NORMAL)) +
-            slideInVertically(Motion.springy()) { it / 5 }
+            slideInVertically(tween(Motion.NORMAL, easing = FastOutSlowInEasing)) { it / 12 }
     ) { content() }
 }
 

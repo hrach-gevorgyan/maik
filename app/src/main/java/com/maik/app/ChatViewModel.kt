@@ -33,7 +33,7 @@ sealed interface Stage {
     data class Broken(val summary: String, val detail: String, val refetch: Boolean) : Stage
 }
 
-enum class Screen { List, Chat, Settings }
+enum class Screen { List, Chat, Settings, Setup }
 
 /** Settings is a menu of pages, not one long scroll. */
 enum class SettingsPage { Root, Models, Appearance, Instructions, Storage, About }
@@ -75,7 +75,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     var settingsPage by mutableStateOf(SettingsPage.Root)
         private set
-    var themeMode by mutableStateOf(ThemeMode.SYSTEM)
+    var themeMode by mutableStateOf(ThemeMode.DARK)
         private set
     var systemPrompt by mutableStateOf(DEFAULT_SYSTEM_PROMPT)
         private set
@@ -162,6 +162,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             screen == Screen.Settings && settingsPage != SettingsPage.Root ->
                 settingsPage = SettingsPage.Root
 
+            screen == Screen.Setup && stage is Stage.Downloading -> openSettings()
+
             else -> openList()
         }
     }
@@ -225,13 +227,27 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /* ---------- model ---------- */
 
+    /**
+      * Picks the model new chats will use. If it isn't downloaded yet, go straight
+      * to the download screen — tapping a model and having nothing visible happen
+      * is the same as the app being broken.
+      */
     fun selectModel(next: ModelSpec) {
-        if (next.id == store.spec.id) return
+        val alreadyCurrent = next.id == store.spec.id
         store.select(next)
         target = next
-        closeEngine()
-        stage = if (store.isReady(next)) Stage.Loading.also { loadEngine(next) }
-        else Stage.NeedsModel
+
+        if (store.isReady(next)) {
+            if (!alreadyCurrent || stage !is Stage.Ready) {
+                closeEngine()
+                loadEngine(next)
+            }
+            if (screen == Screen.Setup) screen = Screen.List
+        } else {
+            closeEngine()
+            stage = Stage.NeedsModel
+            screen = Screen.Setup
+        }
     }
 
     /** Pins the open chat to a model, downloading or loading it if needed. */

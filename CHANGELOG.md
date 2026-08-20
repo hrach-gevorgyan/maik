@@ -7,6 +7,43 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 1.4.0 — 21 August 2026
+
+**A real device now has to prove the app works before anything ships.**
+
+A new golden test boots an Android emulator in CI, downloads an actual model, loads
+it into the engine and makes it answer a question. Releases are blocked on it. Every
+failure of the last three versions lived exactly where unit tests cannot see —
+between the bundle format and the runtime — and this is the check that sees it.
+
+### Fixed
+
+- **SmolLM failed to download**, and it was my validation rejecting a perfectly good
+  file. These archives carry four bytes before the ZIP header, which Java's
+  `ZipFile` refuses even though the engine reads them happily. Validation now scans
+  the archive's tail for the entries it needs instead of parsing the container.
+- **Other models could not be downloaded at all.** Tapping one in Settings marked it
+  as selected and then did nothing visible, because nothing navigated to the
+  download screen. Picking a model you don't have now takes you straight there.
+- **The light theme hid the status bar icons** — the clock and battery stayed white
+  on a white background. The system bars now invert with the theme.
+- **The default theme is dark**, which is what maik is drawn for. "Follow the
+  system" is still there if you prefer it.
+- **The notification request now explains itself first**, in plain words, before
+  Android's own box appears — and it says outright that declining changes nothing
+  about the download.
+
+### Changed
+
+- **SmolLM is gone** from the app and **DeepSeek-R1 1.5B is the default.** SmolLM
+  lives on as the golden test's fixture, where being tiny is a virtue.
+- **Calmer motion.** Entrances were staggered down lists, which read as the app
+  struggling rather than as polish. Rows now appear at once; movement is kept for
+  the places it explains something — screen depth, press feedback, the send button
+  becoming stop, the bar sweeping while a download connects.
+
+---
+
 ## 1.3.0 — 21 August 2026
 
 **The app works now. 1.1.0 and 1.2.0 did not, and this explains why.**

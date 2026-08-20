@@ -89,6 +89,7 @@ private fun Root(vm: ChatViewModel = viewModel()) {
                     when (screen) {
                         Screen.List -> ConversationListScreen(vm)
                         Screen.Settings -> SettingsScreen(vm)
+                        Screen.Setup -> SetupScreen(vm)
                         Screen.Chat -> when (vm.stage) {
                             is Stage.Ready -> ChatScreen(vm)
                             else -> SetupScreen(vm)

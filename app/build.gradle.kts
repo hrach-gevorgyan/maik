@@ -20,6 +20,7 @@ android {
         targetSdk = 35
         versionCode = maikVersionCode
         versionName = maikVersionName
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // MediaPipe ships four ABIs of a ~27 MB native library. Every phone that
         // can hold a 1.7B model is arm64, and dropping the rest halves the APK.
@@ -45,6 +46,12 @@ android {
     }
 
     buildTypes {
+        debug {
+            // x86_64 as well, so the golden test can run on a CI emulator. Release
+            // stays ARM-only, which is what halves the shipped APK.
+            ndk { abiFilters.addAll(listOf("arm64-v8a", "x86_64")) }
+        }
+
         release {
             // R8 is left off: MediaPipe's JNI entry points need keep rules that
             // aren't worth debugging for a sideloaded app.
@@ -98,4 +105,8 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     testImplementation("junit:junit:4.13.2")
+
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }

@@ -80,15 +80,12 @@ private fun SettingsMenu(vm: ChatViewModel) {
     Column(Modifier.fillMaxSize()) {
         TopBar(title = "Settings", onBack = vm::openList)
         LazyColumn(Modifier.fillMaxSize()) {
-            itemsIndexed(ENTRIES) { index, entry ->
-                // Rows arrive in sequence, so the page assembles rather than snaps.
-                RisesIn(key = entry.page, delayMillis = index * 45) {
-                    MenuRow(
-                        title = entry.title,
-                        detail = entry.detail(vm),
-                        onClick = { vm.openSettingsPage(entry.page) }
-                    )
-                }
+            items(ENTRIES) { entry ->
+                MenuRow(
+                    title = entry.title,
+                    detail = entry.detail(vm),
+                    onClick = { vm.openSettingsPage(entry.page) }
+                )
                 HorizontalLine()
             }
         }
@@ -142,22 +139,20 @@ private fun ModelsPage(vm: ChatViewModel) {
                 )
                 Spacer(Modifier.height(18.dp))
             }
-            itemsIndexed(Models.ALL) { index, model ->
-                RisesIn(key = model.id, delayMillis = index * 50) {
-                    ModelCard(
-                        model = model,
-                        selected = model.id == vm.spec.id,
-                        downloaded = model.id in installed,
-                        onClick = { vm.selectModel(model) }
-                    )
-                }
+            items(Models.ALL) { model ->
+                ModelCard(
+                    model = model,
+                    selected = model.id == vm.spec.id,
+                    downloaded = model.id in installed,
+                    onClick = { vm.selectModel(model) }
+                )
                 Spacer(Modifier.height(10.dp))
             }
             item {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Only these four can be offered: every other on-device model " +
-                        "worth having is behind a sign-in on Hugging Face.",
+                    "This is the whole list: every other on-device model worth " +
+                        "having sits behind a sign-in on Hugging Face.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                 )
@@ -191,10 +186,6 @@ fun ModelCard(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(model.label, style = MaterialTheme.typography.titleMedium, color = scheme.onSurface)
-            if (model.isProbe) {
-                Spacer(Modifier.width(8.dp))
-                Tag("QUICK CHECK")
-            }
             Spacer(Modifier.weight(1f))
             Text(
                 if (downloaded) "ON DEVICE" else "${model.approxMb} MB",
@@ -249,14 +240,12 @@ private fun AppearancePage(vm: ChatViewModel) {
                 ThemeMode.SYSTEM to "Follow the system",
                 ThemeMode.DARK to "Dark",
                 ThemeMode.LIGHT to "Light"
-            ).forEachIndexed { index, (mode, label) ->
-                RisesIn(key = mode, delayMillis = index * 50) {
-                    ChoiceRow(
-                        label = label,
-                        selected = vm.themeMode == mode,
-                        onClick = { vm.updateThemeMode(mode) }
-                    )
-                }
+            ).forEach { (mode, label) ->
+                ChoiceRow(
+                    label = label,
+                    selected = vm.themeMode == mode,
+                    onClick = { vm.updateThemeMode(mode) }
+                )
                 Spacer(Modifier.height(10.dp))
             }
         }
