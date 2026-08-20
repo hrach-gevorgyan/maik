@@ -113,19 +113,22 @@ Switching is two taps in Settings, and each model stays on disk once fetched, so
 you can compare them on your own phone rather than taking anyone's word for it.
 
 <details>
-<summary><b>Why not Gemma 3 1B, which is better at this size?</b></summary>
+<summary><b>Why these four, and not the obvious names?</b></summary>
 
 <br>
 
-Because its Hugging Face repo is **gated** (`gated: auto`). Every user would have to
-create an account, accept a license, and mint a token before the app could download
-anything — a terrible first-run experience.
+Because almost everything else is **gated** on Hugging Face (`gated: auto`) — Gemma
+3, Gemma 2, Llama 3.2. Every user would have to create an account, accept a licence
+and mint a token before the app could download anything, which is a miserable way to
+open an app for the first time.
 
-If you want it anyway: point `ModelSpec.url` at the Gemma `.task` bundle and add an
+Gemma **4** is the happy exception: newest of the family, and ungated.
+
+If you want a gated model anyway, point `ModelSpec.url` at its bundle and add an
 `Authorization: Bearer <hf_token>` header inside `ModelStore.download()`.
 
-Qwen3-1.7B would also be a step up, but it only ships as `.litertlm`, which needs a
-newer MediaPipe runtime than the one pinned here.
+Also considered and passed over: Qwen3 4B (2.5 GB, slow to first word), Phi-4-mini
+(3.7 GB), and DeepSeek-R1 1.5B (reasons endlessly at this size).
 
 </details>
 
@@ -165,9 +168,10 @@ the release notes, and attaches the APK.
 
 <br>
 
-Without a keystore the APK comes out **unsigned** — installable only after your
-phone complains, and never as an upgrade over a previous install. To fix that,
-generate a keystore once:
+Without a keystore, releases fall back to a **debug-signed** build. It installs and
+runs, but every release gets a different throwaway key, so you must uninstall the
+previous version first — which also wipes your chats and downloaded model. To fix
+that permanently, generate a keystore once:
 
 ```bash
 keytool -genkey -v -keystore maik.jks -keyalg RSA -keysize 2048 -validity 10000 -alias maik
