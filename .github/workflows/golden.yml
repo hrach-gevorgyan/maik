@@ -4,9 +4,9 @@ name: Golden
 # image, download a real model, load it, and make it produce a sentence. Unit tests
 # cannot see this class of failure, because it only exists where the bundle format
 # meets the runtime.
+# Deliberately NOT on push to main: release.yml runs this same gate on the tag,
+# and paying for two 25-minute emulator runs per change is just waste.
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:

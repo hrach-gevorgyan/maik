@@ -7,6 +7,50 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 1.5.0 — 21 August 2026
+
+**Replies were nonsense because maik was formatting every prompt twice.**
+
+Each `.task` bundle carries its own prompt template inside its `METADATA`, and the
+engine applies it — DeepSeek uses `<|User|>`, TinyLlama `<|user|>
+`, Phi-4-mini
+`<|user|>`. maik was wrapping your message in a second, hand-written template on
+top. The model saw nested markup, answered questions nobody asked, and leaked
+byte-level tokeniser debris like `ĠðŁ` into the text.
+
+Prompts are now sent as plain text. Every hand-written template is deleted. All
+three models were verified by reading the template out of their bundles.
+
+The golden test now checks the *answer*: it asks for the capital of France and
+fails unless the reply says Paris, and rejects any reply containing tokeniser
+debris. Fluent nonsense no longer passes.
+
+### Fixed
+
+- **The app crashed while warming up.** The GPU delegate crashes natively on some
+  drivers, which no error handling can catch. It is now off by default and opt-in
+  under Behaviour — and if the app dies while loading, it turns itself back off.
+- **Deleting a model did nothing visible.** The list read the disk during drawing,
+  which is not state Compose watches, so the row stayed put.
+- **Returning from the download notification** dropped you on the conversation list
+  instead of the download.
+- **The icon had black fringing** on the letters. Transparent pixels carry black,
+  and downsampling was blending it into every edge. It is now composited from an
+  alpha mask, so black never enters the blend.
+- **Light is the default theme**, as asked.
+
+### Changed
+
+- **The thinking switch moved into the chat**, under the messages — it changes what
+  the next reply will be, so it belongs next to what you are about to send.
+- **Haptics has a setting**, and every buzz in the app now respects it.
+- **Settings reorganised**: Model, Instructions, Appearance, Behaviour, Storage,
+  About — ordered by how often you touch them, each subtitle showing its current
+  value rather than repeating its title.
+- CI no longer runs the emulator twice per change.
+
+---
+
 ## 1.4.1 — 21 August 2026
 
 Trims the download back to **36 MB**. 1.4.0 came out at 68 MB because adding
