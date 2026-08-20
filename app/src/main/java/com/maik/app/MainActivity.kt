@@ -61,7 +61,7 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
-    LaunchedEffect(vm.messages.size, vm.busy.value) {
+    LaunchedEffect(vm.messages.size, vm.busy) {
         val target = vm.messages.size // busy row sits one past the last message
         if (target > 0) listState.animateScrollToItem(target)
     }
@@ -73,33 +73,48 @@ fun ChatScreen(vm: ChatViewModel = viewModel()) {
             .navigationBarsPadding()
             .imePadding()
     ) {
-        Header(canClear = vm.messages.isNotEmpty() && !vm.busy.value, onClear = vm::clear)
+        Header(
+            canClear = vm.messages.isNotEmpty() && !vm.busy && vm.stage is Stage.Ready,
+            onClear = vm::clear
+        )
 
         Box(Modifier.weight(1f)) {
-            if (vm.messages.isEmpty()) {
-                EmptyState()
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    itemsIndexed(vm.messages) { _, msg -> Bubble(msg) }
-                    if (vm.busy.value) item { TypingDots() }
-                }
+            when (val s = vm.stage) {
+                is Stage.Ready ->
+                    if (vm.messages.isEmpty()) {
+                        EmptyState()
+                    } else {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            itemsIndexed(vm.messages) { _, msg -> Bubble(msg) }
+                            if (vm.busy) item { TypingDots() }
+                        }
+                    }
+
+                else -> SetupScreen(
+                    stage = s,
+                    spec = vm.spec,
+                    onDownload = vm::startDownload,
+                    onRetry = vm::retry
+                )
             }
         }
 
-        Composer(
-            value = input,
-            onValueChange = { input = it },
-            enabled = !vm.busy.value,
-            onSend = {
-                vm.send(input)
-                input = ""
-            }
-        )
+        if (vm.stage is Stage.Ready) {
+            Composer(
+                value = input,
+                onValueChange = { input = it },
+                enabled = !vm.busy,
+                onSend = {
+                    vm.send(input)
+                    input = ""
+                }
+            )
+        }
     }
 }
 
@@ -199,6 +214,168 @@ private fun EmptyState() {
         )
     }
 }
+
+/* ---------- first-run setup ---------- */
+
+private fun mb(bytes: Long) = "%,d".format(bytes / 1024 / 1024)
+
+@Composable
+private fun SetupScreen(
+    stage: Stage,
+    spec: ModelSpec,
+    onDownload: () -> Unit,
+    onRetry: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .padding(horizontal = 28.dp),
+        verticalArrangement = Arrangement.Center
+    ) {
+        Wordmark(size = 56)
+        Spacer(Modifier.height(18.dp))
+
+        when (stage) {
+            is Stage.NeedsModel -> {
+                Text(
+                    "maik carries its own brain. Fetch it once, then it works " +
+                        "forever with the network off.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+                Spacer(Modifier.height(28.dp))
+                SpecRow("MODEL", spec.label)
+                SpecRow("SIZE", "${mb(spec.approxBytes)} MB, one time")
+                SpecRow("AFTER", "Fully offline")
+                Spacer(Modifier.height(32.dp))
+                BigButton("Download model", onDownload)
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    "Use Wi-Fi. Nothing you type is ever uploaded.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.35f)
+                )
+            }
+
+            is Stage.Downloading -> {
+                val pct = (stage.fraction * 100).toInt()
+                Text(
+                    "Downloading",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = scheme.onBackground
+                )
+                Spacer(Modifier.height(20.dp))
+                ProgressBar(stage.fraction)
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth()) {
+                    Text(
+                        "${mb(stage.bytes)} / ${mb(stage.total)} MB",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        "$pct%",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.primary
+                    )
+                }
+            }
+
+            is Stage.Loading -> {
+                Text(
+                    "Waking up",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = scheme.onBackground
+                )
+                Spacer(Modifier.height(16.dp))
+                TypingDots()
+            }
+
+            is Stage.Broken -> {
+                Text(
+                    "That didn't work",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = Color(0xFFFF9BA6)
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    stage.reason,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+                Spacer(Modifier.height(28.dp))
+                BigButton("Try again", onRetry)
+            }
+
+            is Stage.Ready -> Unit
+        }
+    }
+}
+
+@Composable
+private fun SpecRow(label: String, value: String) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 7.dp)
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+            modifier = Modifier.width(78.dp)
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onBackground
+        )
+    }
+}
+
+@Composable
+private fun ProgressBar(fraction: Float) {
+    val animated by animateFloatAsState(fraction, tween(300), label = "dl")
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(6.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth(animated.coerceIn(0f, 1f))
+                .fillMaxHeight()
+                .clip(CircleShape)
+                .background(MaterialTheme.colorScheme.primary)
+        )
+    }
+}
+
+@Composable
+private fun BigButton(label: String, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.primary)
+            .clickable(onClick = onClick)
+            .padding(vertical = 17.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onPrimary
+        )
+    }
+}
+
+/* ---------- chat ---------- */
 
 @Composable
 private fun Bubble(msg: Message) {

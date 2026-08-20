@@ -10,8 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "com.maik.app"
-        // AICore / Gemini Nano requires API 31+; the SDK targets modern devices.
-        minSdk = 31
+        minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
@@ -38,8 +37,8 @@ android {
 }
 
 dependencies {
-    // On-device Gemini Nano through Android AICore.
-    implementation("com.google.ai.edge.aicore:aicore:0.0.1-exp01")
+    // On-device inference. Runs a LiteRT .task bundle locally — no AICore, no cloud.
+    implementation("com.google.mediapipe:tasks-genai:0.10.24")
 
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
