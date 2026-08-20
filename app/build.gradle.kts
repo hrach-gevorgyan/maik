@@ -10,6 +10,10 @@ plugins {
 val maikVersionName: String = (findProperty("maikVersionName") as String?) ?: "1.0.0"
 val maikVersionCode: Int = (findProperty("maikVersionCode") as String?)?.toInt() ?: 1
 
+// Set by the release workflow. Keeps emulator-only architectures out of an APK
+// that real people will install.
+val shipping: Boolean = (findProperty("maikShipping") as String?)?.toBoolean() ?: false
+
 android {
     namespace = "com.maik.app"
     compileSdk = 35
@@ -47,9 +51,10 @@ android {
 
     buildTypes {
         debug {
-            // x86_64 as well, so the golden test can run on a CI emulator. Release
-            // stays ARM-only, which is what halves the shipped APK.
-            ndk { abiFilters.addAll(listOf("arm64-v8a", "x86_64")) }
+            // x86_64 as well, so the golden test can run on a CI emulator — but not
+            // when a debug build is what actually ships, or the emulator's
+            // architecture doubles the size of everyone's download.
+            if (!shipping) ndk { abiFilters.add("x86_64") }
         }
 
         release {

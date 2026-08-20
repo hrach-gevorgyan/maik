@@ -7,6 +7,17 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 1.4.1 — 21 August 2026
+
+Trims the download back to **36 MB**. 1.4.0 came out at 68 MB because adding
+emulator support for the golden test also added the emulator's processor
+architecture to the APK everyone installs. Shipped builds now exclude it; local
+debug builds still carry it so the test can run.
+
+Nothing else changed. Same app, half the size.
+
+---
+
 ## 1.4.0 — 21 August 2026
 
 **A real device now has to prove the app works before anything ships.**
