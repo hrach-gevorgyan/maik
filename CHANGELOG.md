@@ -7,6 +7,41 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 1.6.0 — 21 August 2026
+
+**Two models, both verified against their own bundles before shipping.**
+
+- **Qwen2.5 1.5B joins as a backup** — it answers straight away instead of reasoning
+  first, so its first word arrives sooner. DeepSeek-R1 1.5B stays the default.
+- **SmolLM, TinyLlama and Phi-4-mini are gone.** TinyLlama returned empty replies on
+  device. Phi-4-mini at 3.8B ran the phone hot enough to throttle, took over a minute
+  per answer and then locked up; a size ceiling now stops anything like it being
+  offered again.
+
+### Fixed
+
+- **Garbled text.** A mangled emoji was arriving as Latin characters — `ðŁĨ` is the
+  bytes `F0 9F 86`, a four-byte emoji cut one byte short. Replies are now decoded
+  back through the byte table, and incomplete characters are dropped rather than
+  shown as gibberish.
+- **The thinking indicator is quiet now** — a dot, a word and a timer, instead of
+  streaming reasoning that you start reading and then watch get replaced by a
+  different answer. The full reasoning is still there, folded away.
+- **A finished download says so**, with the model named and a button, instead of
+  leaving you on a screen of logs and a back arrow.
+
+### Changed
+
+- **Every model is now inspected before it can ship.**
+  `tools/verify_models.py` reads each bundle's ZIP directory over range requests and
+  checks its tokenizer, weights, prompt template, size and context window. It runs in
+  CI, so the mistake that broke four releases cannot repeat.
+- The golden test runs against the real default model rather than a small fixture.
+- The README was rewritten from scratch; it had drifted into describing features that
+  were removed and bugs that were fixed.
+
+---
+
 ## 1.5.1 — 21 August 2026
 
 **Replies no longer ramble into invented conversations.**
