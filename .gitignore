@@ -1,0 +1,28 @@
+# Gradle
+.gradle/
+build/
+app/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Local config — machine specific, never commit
+local.properties
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Build outputs & signing
+*.apk
+*.aab
+*.ap_
+*.dex
+*.keystore
+*.jks
+keystore.properties
+
+# OS cruft
+.DS_Store
+Thumbs.db
