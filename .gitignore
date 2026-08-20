@@ -16,6 +16,7 @@ captures/
 
 # Build outputs & signing
 *.apk
+!dist/*.apk
 *.aab
 *.ap_
 *.dex

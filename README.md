@@ -33,6 +33,15 @@ weight rather than bundled six times over.
 | **Type** | HK Grotesk 300–800, one 130 KB variable file |
 | **Motion** | Pulsing on-device indicator, staggered typing dots, animated send state |
 
+## Download
+
+A prebuilt APK lives at **[`dist/maik-debug.apk`](dist/maik-debug.apk)** — grab it,
+copy it to your phone, tap it. You'll need "install unknown apps" enabled for
+whatever app you open it from.
+
+It's **debug-signed**, so it's fine for sideloading and useless for the Play
+Store. Build a release variant with your own keystore if you want to ship it.
+
 ## Run it
 
 ```bash
