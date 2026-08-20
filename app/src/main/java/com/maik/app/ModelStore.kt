@@ -8,21 +8,25 @@ import kotlinx.coroutines.flow.flowOn
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.zip.ZipFile
 
 /** Prompt formats differ per family; the bundles ship tokenizers, not templates. */
-enum class Template { CHATML, GEMMA }
+enum class Template { CHATML, PHI, DEEPSEEK, ZEPHYR }
+
+/** How the app should be painted. */
+enum class ThemeMode { SYSTEM, DARK, LIGHT }
 
 /**
  * A model bundle maik can run.
  *
- * Only *generic* bundles are listed. Vendors also publish `-gpu` variants that are
- * a little smaller, but those refuse to load on the CPU executor — and since GPU
- * initialisation can fail for driver reasons on any given device, a model that
- * cannot fall back is a model that sometimes simply doesn't work.
+ * **Only `.task` bundles work.** They are ZIP archives holding `METADATA`,
+ * `TF_LITE_PREFILL_DECODE` and `TOKENIZER_MODEL` — that last entry is the
+ * SentencePiece tokenizer the runtime demands. LiteRT-LM `.litertlm` files carry no
+ * such member and fail with "SentencePiece tokenizer not found", which is exactly
+ * what shipped in 1.1.0 and 1.2.0.
  *
- * Every entry is ungated on Hugging Face: no token, no account, no license
- * click-through. Gemma 3, Gemma 2 and Llama are all gated, which would put a
- * sign-in wall in front of first launch.
+ * Every entry here is ungated on Hugging Face and has had its ZIP directory
+ * inspected. Every Gemma and Llama repo is gated and cannot be used at all.
  */
 data class ModelSpec(
     val id: String,
@@ -31,56 +35,77 @@ data class ModelSpec(
     val blurb: String,
     val url: String,
     val approxBytes: Long,
-    /** Context window the bundle was built with. */
+    /** Context window the bundle was built with; must match its `ekv` figure. */
     val contextTokens: Int,
     val template: Template = Template.CHATML,
-    /** Known to emit `<think>` blocks. Parsing copes either way. */
-    val reasoning: Boolean = false
+    /** Emits `<think>` blocks before answering. Parsing copes either way. */
+    val reasoning: Boolean = false,
+    /** Shown first, and framed as a quick check rather than a real assistant. */
+    val isProbe: Boolean = false
 ) {
-    /** The runtime picks its loader from the extension, so it has to be preserved. */
-    val fileName: String get() = "$id.${url.substringAfterLast('.')}"
+    val fileName: String get() = "$id.task"
     val approxMb: Long get() = approxBytes / 1024 / 1024
 }
 
 object Models {
-    val LFM_1_2B = ModelSpec(
-        id = "lfm2.5-1.2b-int4",
-        label = "LFM2.5 1.2B",
-        params = "1.2B · int4",
-        blurb = "Quickest to answer and the smallest download. Start here.",
-        url = "https://huggingface.co/litert-community/LFM2.5-1.2B-Instruct/" +
-            "resolve/main/LFM2.5-1.2B-Instruct_int4.litertlm",
-        approxBytes = 736_000_000L,
-        contextTokens = 4096
+    val SMOL_135M = ModelSpec(
+        id = "smollm-135m-q8",
+        label = "SmolLM 135M",
+        params = "135M · int8",
+        blurb = "Downloads in seconds and proves the app works. Too small to be useful — " +
+            "move up once you've seen it answer.",
+        url = "https://huggingface.co/litert-community/SmolLM-135M-Instruct/" +
+            "resolve/main/SmolLM-135M-Instruct_multi-prefill-seq_q8_ekv1280.task",
+        approxBytes = 166_754_726L,
+        contextTokens = 1280,
+        isProbe = true
     )
 
-    val LFM_2_6B = ModelSpec(
-        id = "lfm2.5-2.6b-int4",
-        label = "LFM2.5 2.6B",
-        params = "2.6B · int4",
-        blurb = "Twice the model for twice the wait. Better on anything involved.",
-        url = "https://huggingface.co/litert-community/LFM2.5-2.6B/" +
-            "resolve/main/LFM2.5-2.6B_int4.litertlm",
-        approxBytes = 1_667_000_000L,
-        contextTokens = 4096
-    )
-
-    val GEMMA4_E2B = ModelSpec(
-        id = "gemma-4-e2b-it",
-        label = "Gemma 4 E2B",
-        params = "~2B effective",
-        blurb = "Google's newest small model. The most capable here, and the largest.",
-        url = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/" +
-            "resolve/main/gemma-4-E2B-it.litertlm",
-        approxBytes = 2_588_000_000L,
+    val DEEPSEEK_1_5B = ModelSpec(
+        id = "deepseek-r1-distill-1.5b-q8",
+        label = "DeepSeek-R1 1.5B",
+        params = "1.5B · int8",
+        blurb = "Works through a problem before answering, and shows you the working.",
+        url = "https://huggingface.co/litert-community/DeepSeek-R1-Distill-Qwen-1.5B/" +
+            "resolve/main/DeepSeek-R1-Distill-Qwen-1.5B_multi-prefill-seq_q8_ekv4096.task",
+        approxBytes = 1_834_078_546L,
         contextTokens = 4096,
-        template = Template.GEMMA
+        template = Template.DEEPSEEK,
+        reasoning = true
     )
 
-    val ALL = listOf(LFM_1_2B, LFM_2_6B, GEMMA4_E2B)
+    val PHI_4_MINI = ModelSpec(
+        id = "phi-4-mini-q8",
+        label = "Phi-4-mini",
+        params = "3.8B · int8",
+        blurb = "The most capable that will run here. A big download and a slower reply.",
+        url = "https://huggingface.co/litert-community/Phi-4-mini-instruct/" +
+            "resolve/main/Phi-4-mini-instruct_multi-prefill-seq_q8_ekv4096.task",
+        approxBytes = 3_910_050_199L,
+        contextTokens = 4096,
+        template = Template.PHI
+    )
 
-    /** Smallest and fastest by default: the first run should not cost 2.5 GB. */
-    val DEFAULT = LFM_1_2B
+    val TINYLLAMA = ModelSpec(
+        id = "tinyllama-1.1b-q8",
+        label = "TinyLlama 1.1B",
+        params = "1.1B · int8",
+        blurb = "Older and plainer, but quick and undemanding.",
+        url = "https://huggingface.co/litert-community/TinyLlama-1.1B-Chat-v1.0/" +
+            "resolve/main/TinyLlama-1.1B-Chat-v1.0_multi-prefill-seq_q8_ekv1280.task",
+        approxBytes = 1_148_331_545L,
+        contextTokens = 1280,
+        template = Template.ZEPHYR
+    )
+
+    val ALL = listOf(SMOL_135M, TINYLLAMA, DEEPSEEK_1_5B, PHI_4_MINI)
+
+    /**
+     * The 159 MB probe. After three releases that downloaded gigabytes and then
+     * failed to load, the first thing a new install should do is prove the pipeline
+     * works — in under a minute, not after 2 GB.
+     */
+    val DEFAULT = SMOL_135M
 
     fun byId(id: String?): ModelSpec = ALL.firstOrNull { it.id == id } ?: DEFAULT
 }
@@ -103,8 +128,12 @@ class ModelStore(context: Context) {
     var spec: ModelSpec = Models.byId(prefs.getString("model", null))
         private set
 
-    /** Whether reasoning models are allowed to think before answering. */
     var thinking: Boolean = prefs.getBoolean("thinking", true)
+        private set
+
+    var themeMode: ThemeMode =
+        runCatching { ThemeMode.valueOf(prefs.getString("theme", null) ?: "SYSTEM") }
+            .getOrDefault(ThemeMode.SYSTEM)
         private set
 
     var systemPrompt: String = prefs.getString("system", DEFAULT_SYSTEM_PROMPT)
@@ -121,6 +150,11 @@ class ModelStore(context: Context) {
         prefs.edit().putBoolean("thinking", enabled).apply()
     }
 
+    fun setThemeMode(mode: ThemeMode) {
+        themeMode = mode
+        prefs.edit().putString("theme", mode.name).apply()
+    }
+
     fun setSystemPrompt(text: String) {
         systemPrompt = text.trim().ifEmpty { DEFAULT_SYSTEM_PROMPT }
         prefs.edit().putString("system", systemPrompt).apply()
@@ -131,15 +165,10 @@ class ModelStore(context: Context) {
     fun isReady(s: ModelSpec = spec): Boolean =
         fileFor(s).let { it.exists() && it.length() > MIN_PLAUSIBLE_BYTES }
 
-    /** Every bundle already on disk, so the UI can show what's been paid for. */
     fun installed(): Set<String> = Models.ALL.filter { isReady(it) }.map { it.id }.toSet()
 
     fun bytesOnDisk(): Long = Models.ALL.sumOf { fileFor(it).length() }
 
-    /**
-     * Streams to a `.part` file and renames only on success, so an interrupted
-     * download can never masquerade as a usable model.
-     */
     fun download(s: ModelSpec = spec): Flow<Download> = flow {
         val target = fileFor(s)
         val partial = File(dir, "${s.fileName}.part")
@@ -161,7 +190,11 @@ class ModelStore(context: Context) {
             partial.delete()
 
             if (!hasRoomFor(total)) {
-                emit(Download.Failed("Not enough free space — this needs ${total / 1024 / 1024} MB."))
+                emit(
+                    Download.Failed(
+                        "Not enough free space — this needs ${total / 1024 / 1024} MB."
+                    )
+                )
                 return@flow
             }
 
@@ -175,7 +208,6 @@ class ModelStore(context: Context) {
                         if (read < 0) break
                         output.write(buffer, 0, read)
                         copied += read
-                        // Emitting per 64 KB chunk would just thrash recomposition.
                         if (copied - lastEmit > 4_000_000 || copied == total) {
                             lastEmit = copied
                             emit(Download.Progress(copied, total))
@@ -184,11 +216,18 @@ class ModelStore(context: Context) {
                 }
             }
 
-            // A truncated download is the likeliest failure on a phone, and it looks
-            // exactly like a corrupt model later on. Catch it here instead.
             if (partial.length() < total * 0.99) {
                 partial.delete()
                 emit(Download.Failed("The download ended early. Check your connection and retry."))
+                return@flow
+            }
+
+            // Prove the bundle is loadable *now*, while the user is still on the
+            // download screen and a retry is obvious — rather than at first use,
+            // where it surfaces as an unreadable engine error.
+            validate(partial)?.let { problem ->
+                partial.delete()
+                emit(Download.Failed(problem))
                 return@flow
             }
 
@@ -211,8 +250,6 @@ class ModelStore(context: Context) {
         File(dir, "${s.fileName}.part").delete()
     }
 
-    fun deleteAllModels() = Models.ALL.forEach { delete(it) }
-
     private fun hasRoomFor(bytes: Long): Boolean =
         runCatching { dir.usableSpace > bytes + 128L * 1024 * 1024 }.getOrDefault(true)
 
@@ -225,6 +262,29 @@ class ModelStore(context: Context) {
 
     private companion object {
         /** Anything smaller than this is a stub or an error page, not a model. */
-        const val MIN_PLAUSIBLE_BYTES = 50L * 1024 * 1024
+        const val MIN_PLAUSIBLE_BYTES = 20L * 1024 * 1024
+
+        /**
+         * Returns a human-readable problem, or null when the bundle looks loadable.
+         */
+        fun validate(file: File): String? = try {
+            ZipFile(file).use { zip ->
+                val names = zip.entries().asSequence().map { it.name }.toSet()
+                when {
+                    REQUIRED_ENTRY !in names ->
+                        "That file isn't a usable model — it has no tokenizer inside."
+
+                    WEIGHTS_ENTRY !in names ->
+                        "That file isn't a usable model — the weights are missing."
+
+                    else -> null
+                }
+            }
+        } catch (_: Exception) {
+            "The downloaded file is damaged."
+        }
+
+        const val REQUIRED_ENTRY = "TOKENIZER_MODEL"
+        const val WEIGHTS_ENTRY = "TF_LITE_PREFILL_DECODE"
     }
 }

@@ -48,14 +48,14 @@ class DownloadService : Service() {
         if (job?.isActive == true) return START_STICKY
 
         val store = ModelStore(applicationContext)
-        val spec = store.spec
+        val spec = Models.byId(intent?.getStringExtra(EXTRA_MODEL_ID) ?: store.spec.id)
 
         createChannel()
         startForeground(NOTIFICATION_ID, buildNotification(spec.label, 0, 0, indeterminate = true))
         DownloadBus.running.value = true
 
         job = scope.launch {
-            store.download().collect { event ->
+            store.download(spec).collect { event ->
                 DownloadBus.state.value = event
                 when (event) {
                     is Download.Progress -> notify(
@@ -144,9 +144,11 @@ class DownloadService : Service() {
         private const val CHANNEL_ID = "model_download"
         private const val NOTIFICATION_ID = 42
         const val ACTION_CANCEL = "com.maik.app.CANCEL_DOWNLOAD"
+        private const val EXTRA_MODEL_ID = "model_id"
 
-        fun start(context: Context) {
+        fun start(context: Context, modelId: String? = null) {
             val intent = Intent(context, DownloadService::class.java)
+                .putExtra(EXTRA_MODEL_ID, modelId)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {

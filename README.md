@@ -74,7 +74,8 @@ revoke from a dashboard.
 <tr><td width="180"><b>Conversations</b></td><td>As many as you like, titled from your first message, searchable by title or content. Long-press to rename or delete.</td></tr>
 <tr><td><b>Streaming</b></td><td>Replies arrive word by word. Hit stop mid-sentence and it keeps what was already written.</td></tr>
 <tr><td><b>Copy</b></td><td>Long-press any message.</td></tr>
-<tr><td><b>Three models</b></td><td>Pick per conversation from the chat header. Each chat keeps the model it started with.</td></tr>
+<tr><td><b>Four models</b></td><td>Pick per conversation from the chat header. Each chat keeps the model it started with.</td></tr>
+<tr><td><b>Light and dark</b></td><td>Or follow the system. Colours crossfade rather than snap.</td></tr>
 <tr><td><b>Formatted replies</b></td><td>Markdown renders — headings, lists, bold, and code blocks that scroll instead of stretching.</td></tr>
 <tr><td><b>Regenerate</b></td><td>Ask again from the same point when an answer misses.</td></tr>
 <tr><td><b>Visible thinking</b></td><td>When a model reasons before answering, you watch it happen — then the reasoning folds away into a line you can expand.</td></tr>
@@ -93,7 +94,7 @@ that the radio is never touched again. `INTERNET` exists for that one download a
 nothing else.
 
 <table>
-<tr><td><b>Default model</b></td><td>LFM2.5 1.2B · 736 MB</td></tr>
+<tr><td><b>Default model</b></td><td>SmolLM 135M · 159 MB · a deliberate first step</td></tr>
 <tr><td><b>Runtime</b></td><td><code>com.google.mediapipe:tasks-genai</code>, LiteRT-LM bundles</td></tr>
 <tr><td><b>Context</b></td><td>4096 tokens</td></tr>
 <tr><td><b>Runs on</b></td><td>Any ARM64 Android 8.0+ phone. Yes, including your S24 Ultra.</td></tr>
@@ -106,18 +107,29 @@ rules out most of the obvious names.
 
 | Model | Params | Download | License | Character |
 |---|---|---|---|---|
-| **LFM2.5 1.2B** *(default)* | 1.2B | 736 MB | LFM open | Quickest to answer, smallest download |
-| **LFM2.5 2.6B** | 2.6B | 1.6 GB | LFM open | More depth, still built for phones |
-| **Gemma 4 E2B** | ~2B effective | 2.5 GB | Apache 2.0 | The most capable, and the largest |
+| **SmolLM 135M** *(default)* | 135M | 159 MB | Apache 2.0 | Proves the app works in under a minute. Not a real assistant |
+| **TinyLlama 1.1B** | 1.1B | 1.1 GB | Apache 2.0 | Plain, but quick and undemanding |
+| **DeepSeek-R1 1.5B** | 1.5B | 1.7 GB | MIT | Thinks before answering, and shows the working |
+| **Phi-4-mini** | 3.8B | 3.7 GB | MIT | The most capable that will run on a phone |
 
 Switch from the chat header or in Settings. Each model stays on disk once fetched,
-and each conversation remembers the one it started with — so you can compare them
-on your own phone rather than taking anyone's word for it.
+and each conversation remembers the one it started with.
 
-Only *generic* bundles are listed. Vendors also publish smaller `-gpu` variants, but
-those refuse to load on the CPU executor — and since GPU initialisation can be
-refused by any given driver, a model that cannot fall back is one that sometimes
-simply doesn't work. That mistake shipped in 1.1.0; a test now prevents it.
+**This is the entire list of what's possible.** Every other on-device model worth
+having — the whole Gemma family, Llama, Gemma 2 — is gated behind a Hugging Face
+sign-in, which would put an account wall in front of first launch.
+
+<details>
+<summary><b>Why the default is deliberately too small to be useful</b></summary>
+
+<br>
+
+Three releases shipped models that downloaded gigabytes and then failed to load. The
+default is now a 159 MB bundle that finishes in under a minute, so the first thing a
+new install does is prove the pipeline works end to end. Move up from Settings once
+you have seen it answer.
+
+</details>
 
 <details>
 <summary><b>Why these four, and not the obvious names?</b></summary>
@@ -224,6 +236,8 @@ app/src/main/java/com/maik/app/
 ├── ChatViewModel.kt    stage machine, model lifecycle, streaming, context budget
 ├── Thinking.kt         the reasoning indicator and its collapsible trace
 ├── Markdown.kt         a small Markdown parser and renderer
+├── Settings.kt         the settings menu and its pages
+├── Motion.kt           shared transitions, press feedback and entrances
 ├── ModelStore.kt       model catalog + a download that can't half-succeed
 ├── DownloadService.kt  foreground service so downloads survive the lock screen
 ├── Conversations.kt    chat model, JSON persistence, relative timestamps
@@ -231,6 +245,12 @@ app/src/main/java/com/maik/app/
 ```
 
 Four things worth knowing before you fork it:
+
+**Only `.task` bundles load.** They are ZIP archives containing `METADATA`,
+`TF_LITE_PREFILL_DECODE` and `TOKENIZER_MODEL` — the SentencePiece tokenizer the
+runtime demands. LiteRT-LM `.litertlm` files have no such member and fail with
+"SentencePiece tokenizer not found". Downloads are opened and inspected before being
+accepted, and the test suite rejects `.litertlm`, GPU-only and web URLs outright.
 
 **Context is budgeted, not truncated by luck.** The KV cache is fixed when the model
 is converted, so `buildPrompt` walks backwards through the transcript keeping only
@@ -265,7 +285,7 @@ your chats, not the app — it fails to an empty list rather than a crash loop.
 ## Requirements
 
 - Android **8.0 (API 26)** or newer
-- ~2.5 GB free storage for the default model
+- ~200 MB free storage for the default model, more for the larger ones
 - An **ARM64** device (everything since roughly 2016)
 - Android Studio Ladybug+ / JDK 17+
 - **No special hardware. No allowlist. No AICore.**
@@ -277,7 +297,7 @@ your chats, not the app — it fails to an empty list rather than a crash loop.
 <sub>
 
 Type: [Hanken Grotesk](https://github.com/hanken-design/HK-Grotesk) · Hanken Design Co. · SIL OFL 1.1<br>
-Models: [Gemma 4](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm) · [LFM2.5](https://huggingface.co/litert-community/LFM2.5-1.2B-Instruct) · [Qwen2.5](https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct) · converted to LiteRT by litert-community
+Models: [SmolLM](https://huggingface.co/litert-community/SmolLM-135M-Instruct) · [TinyLlama](https://huggingface.co/litert-community/TinyLlama-1.1B-Chat-v1.0) · [DeepSeek-R1](https://huggingface.co/litert-community/DeepSeek-R1-Distill-Qwen-1.5B) · [Phi-4-mini](https://huggingface.co/litert-community/Phi-4-mini-instruct) · converted to LiteRT by litert-community
 
 **maik.**
 

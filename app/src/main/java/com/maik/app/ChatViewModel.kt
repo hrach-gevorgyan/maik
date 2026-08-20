@@ -35,6 +35,9 @@ sealed interface Stage {
 
 enum class Screen { List, Chat, Settings }
 
+/** Settings is a menu of pages, not one long scroll. */
+enum class SettingsPage { Root, Models, Appearance, Instructions, Storage, About }
+
 /** Which compute unit the loaded engine ended up on. */
 enum class Backend { GPU, CPU, NONE }
 
@@ -47,6 +50,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /** The model the app is set to use. A chat may pin a different one. */
     val spec: ModelSpec get() = store.spec
+
+    /**
+     * What the setup screen should fetch. Usually [spec], but opening a chat that
+     * is pinned to a model you haven't downloaded points it there instead —
+     * without quietly changing what new chats will use.
+     */
+    var target by mutableStateOf(Models.DEFAULT)
+        private set
     fun installedModels(): Set<String> = store.installed()
     fun bytesOnDisk(): Long = store.bytesOnDisk()
 
@@ -62,6 +73,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var query by mutableStateOf("")
 
+    var settingsPage by mutableStateOf(SettingsPage.Root)
+        private set
+    var themeMode by mutableStateOf(ThemeMode.SYSTEM)
+        private set
     var systemPrompt by mutableStateOf(DEFAULT_SYSTEM_PROMPT)
         private set
     var thinkingEnabled by mutableStateOf(true)
@@ -112,7 +127,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         conversations.addAll(chats.load())
         thinkingEnabled = store.thinking
         systemPrompt = store.systemPrompt
+        themeMode = store.themeMode
         watchDownloads()
+        target = store.spec
         stage = when {
             store.isReady() -> Stage.Loading.also { loadEngine(store.spec) }
             DownloadBus.running.value -> Stage.Downloading(0, spec.approxBytes)
@@ -128,11 +145,30 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun openSettings() {
+        settingsPage = SettingsPage.Root
         screen = Screen.Settings
+    }
+
+    fun openSettingsPage(page: SettingsPage) {
+        settingsPage = page
+    }
+
+    /**
+     * One step back, wherever we are. Settings sub-pages return to the settings
+     * menu first, so Back never skips a level.
+     */
+    fun back() {
+        when {
+            screen == Screen.Settings && settingsPage != SettingsPage.Root ->
+                settingsPage = SettingsPage.Root
+
+            else -> openList()
+        }
     }
 
     fun open(id: String) {
         currentId = id
+        dropped = 0
         screen = Screen.Chat
         // A chat pinned to another model needs that model loaded before it can talk.
         ensureEngineFor(modelFor(conversations.firstOrNull { it.id == id }))
@@ -142,6 +178,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val fresh = Conversation(id = UUID.randomUUID().toString(), title = "New chat")
         conversations.add(0, fresh)
         currentId = fresh.id
+        dropped = 0
         query = ""
         screen = Screen.Chat
         ensureEngineFor(store.spec)
@@ -171,6 +208,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /* ---------- settings ---------- */
 
+    fun updateThemeMode(mode: ThemeMode) {
+        store.setThemeMode(mode)
+        themeMode = mode
+    }
+
     fun setThinking(enabled: Boolean) {
         store.setThinking(enabled)
         thinkingEnabled = enabled
@@ -186,8 +228,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun selectModel(next: ModelSpec) {
         if (next.id == store.spec.id) return
         store.select(next)
+        target = next
         closeEngine()
-        stage = if (store.isReady(next)) Stage.Loading.also { loadEngine(next) } else Stage.NeedsModel
+        stage = if (store.isReady(next)) Stage.Loading.also { loadEngine(next) }
+        else Stage.NeedsModel
     }
 
     /** Pins the open chat to a model, downloading or loading it if needed. */
@@ -198,15 +242,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         ensureEngineFor(next)
     }
 
-    private fun ensureEngineFor(target: ModelSpec) {
-        if (loadedId == target.id && stage is Stage.Ready) return
-        if (!store.isReady(target)) {
-            store.select(target)
+    private fun ensureEngineFor(wanted: ModelSpec) {
+        target = wanted
+        if (loadedId == wanted.id && stage is Stage.Ready) return
+        if (!store.isReady(wanted)) {
             stage = Stage.NeedsModel
             return
         }
         closeEngine()
-        loadEngine(target)
+        loadEngine(wanted)
     }
 
     /** True when the active connection would bill you for the download. */
@@ -220,9 +264,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun startDownload() {
         if (stage is Stage.Downloading) return
-        stage = Stage.Downloading(0, spec.approxBytes)
+        stage = Stage.Downloading(0, target.approxBytes)
         // Handed to a foreground service so it keeps going when the screen locks.
-        DownloadService.start(getApplication())
+        DownloadService.start(getApplication(), target.id)
     }
 
     fun cancelDownload() {
@@ -242,7 +286,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                         if (event.reason == "Cancelled") stage = Stage.NeedsModel
                         else stage = Stage.Broken(event.reason, "", refetch = true)
 
-                    is Download.Done -> if (stage !is Stage.Ready) loadEngine(store.spec)
+                    is Download.Done -> if (stage !is Stage.Ready) loadEngine(target)
                     null -> Unit
                 }
             }
@@ -250,10 +294,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun retry() {
-        if (store.isReady()) loadEngine(store.spec) else stage = Stage.NeedsModel
+        if (store.isReady(target)) loadEngine(target) else stage = Stage.NeedsModel
     }
 
-    fun deleteModel(s: ModelSpec = store.spec) {
+    fun deleteModel(s: ModelSpec = target) {
         if (s.id == loadedId) closeEngine()
         store.delete(s)
         if (s.id == store.spec.id) stage = Stage.NeedsModel
@@ -361,7 +405,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun generate(conversationId: String) {
         val llm = engine
-        if (llm == null || stage !is Stage.Ready) return
+        if (llm == null || stage !is Stage.Ready) {
+            finish(
+                conversationId,
+                "No model is loaded yet. Open Settings to download one.",
+                isError = true
+            )
+            return
+        }
 
         busy = true
         streaming = ""
@@ -507,7 +558,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
         return when (model.template) {
             Template.CHATML -> buildChatMl(system, kept.toList(), model)
-            Template.GEMMA -> buildGemma(system, kept.toList())
+            Template.PHI -> buildPhi(system, kept.toList())
+            Template.DEEPSEEK -> buildDeepSeek(system, kept.toList())
+            Template.ZEPHYR -> buildZephyr(system, kept.toList())
         }
     }
 
@@ -527,17 +580,42 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         append("<|im_start|>assistant\n")
     }
 
-    /** Gemma has no system role, so the instructions ride along with the first turn. */
-    private fun buildGemma(system: String, kept: List<Message>) = buildString {
-        kept.forEachIndexed { index, m ->
-            append("<start_of_turn>")
-            append(if (m.fromUser) "user" else "model")
-            append("\n")
-            if (index == 0 && m.fromUser) append(system).append("\n\n")
+    /** Phi-4 marks every turn with a role tag closed by `<|end|>`. */
+    private fun buildPhi(system: String, kept: List<Message>) = buildString {
+        append("<|system|>\n").append(system).append("<|end|>\n")
+        kept.forEach { m ->
+            append(if (m.fromUser) "<|user|>\n" else "<|assistant|>\n")
             append(m.text)
-            append("<end_of_turn>\n")
+            append("<|end|>\n")
         }
-        append("<start_of_turn>model\n")
+        append("<|assistant|>\n")
+    }
+
+    /**
+     * DeepSeek-R1 uses full-width bar characters in its role tags, and its own card
+     * recommends folding any system instruction into the first user turn.
+     */
+    private fun buildDeepSeek(system: String, kept: List<Message>) = buildString {
+        kept.forEachIndexed { index, m ->
+            if (m.fromUser) {
+                append("<｜User｜>")
+                if (index == 0) append(system).append("\n\n")
+                append(m.text)
+            } else {
+                append("<｜Assistant｜>").append(m.text).append("<｜end▁of▁sentence｜>")
+            }
+        }
+        append("<｜Assistant｜>")
+    }
+
+    /** TinyLlama-Chat was tuned on the Zephyr format. */
+    private fun buildZephyr(system: String, kept: List<Message>) = buildString {
+        append("<|system|>\n").append(system).append("</s>\n")
+        kept.forEach { m ->
+            append(if (m.fromUser) "<|user|>\n" else "<|assistant|>\n")
+            append(m.text).append("</s>\n")
+        }
+        append("<|assistant|>\n")
     }
 
     /* ---------- plumbing ---------- */

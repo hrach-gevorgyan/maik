@@ -10,7 +10,12 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -56,34 +61,40 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent {
-            MaikTheme {
-                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    Root()
-                }
-            }
-        }
+        setContent { Root() }
     }
 }
 
 @Composable
 private fun Root(vm: ChatViewModel = viewModel()) {
-    // Back always means "up one level", never "leave the app mid-chat".
-    BackHandler(enabled = vm.screen != Screen.List) { vm.openList() }
+    MaikTheme(vm.themeMode) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            // Back always means "up one level", never "leave the app mid-chat".
+            BackHandler(enabled = vm.screen != Screen.List) { vm.back() }
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
-    ) {
-        when (vm.screen) {
-            Screen.List -> ConversationListScreen(vm)
-            Screen.Settings -> SettingsScreen(vm)
-            Screen.Chat -> when (vm.stage) {
-                is Stage.Ready -> ChatScreen(vm)
-                else -> SetupScreen(vm)
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
+                    .imePadding()
+            ) {
+                AnimatedContent(
+                    targetState = vm.screen,
+                    transitionSpec = {
+                        if (targetState == Screen.List) backward() else forward()
+                    },
+                    label = "screen"
+                ) { screen ->
+                    when (screen) {
+                        Screen.List -> ConversationListScreen(vm)
+                        Screen.Settings -> SettingsScreen(vm)
+                        Screen.Chat -> when (vm.stage) {
+                            is Stage.Ready -> ChatScreen(vm)
+                            else -> SetupScreen(vm)
+                        }
+                    }
+                }
             }
         }
     }
@@ -139,10 +150,12 @@ private fun ChatScreen(vm: ChatViewModel) {
             }
 
             items(convo.messages) { msg ->
-                Column {
-                    Bubble(msg)
-                    if (!msg.reasoning.isNullOrBlank()) {
-                        ReasoningTrace(msg.reasoning, msg.thoughtSeconds)
+                RisesIn(key = msg.at) {
+                    Column {
+                        Bubble(msg)
+                        if (!msg.reasoning.isNullOrBlank()) {
+                            ReasoningTrace(msg.reasoning, msg.thoughtSeconds)
+                        }
                     }
                 }
             }
@@ -359,21 +372,39 @@ private fun Composer(
             )
         }
 
+        val source = rememberPressSource()
+        val bg by animateColorAsState(
+            if (canSend || busy) scheme.primary else scheme.surfaceVariant,
+            tween(Motion.NORMAL),
+            label = "sendBg"
+        )
         Box(
             Modifier
                 .size(50.dp)
+                .pressable(source)
                 .clip(CircleShape)
-                .background(if (canSend || busy) scheme.primary else scheme.surfaceVariant)
-                .clickable(enabled = canSend || busy, onClick = if (busy) onStop else onSend),
+                .background(bg)
+                .clickable(
+                    enabled = canSend || busy,
+                    interactionSource = source,
+                    indication = null,
+                    onClick = if (busy) onStop else onSend
+                ),
             contentAlignment = Alignment.Center
         ) {
-            if (busy) {
-                StopSquare(scheme.onPrimary)
-            } else {
-                ArrowUp(
-                    if (canSend) scheme.onPrimary
-                    else scheme.onSurfaceVariant.copy(alpha = 0.35f)
-                )
+            AnimatedContent(
+                targetState = busy,
+                transitionSpec = { scaleIn(tween(Motion.QUICK)) togetherWith scaleOut(tween(Motion.QUICK)) },
+                label = "sendGlyph"
+            ) { running ->
+                if (running) {
+                    StopSquare(scheme.onPrimary)
+                } else {
+                    ArrowUp(
+                        if (canSend) scheme.onPrimary
+                        else scheme.onSurfaceVariant.copy(alpha = 0.35f)
+                    )
+                }
             }
         }
     }
@@ -549,12 +580,14 @@ fun HorizontalLine() {
 fun BigButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val haptics = LocalHapticFeedback.current
+    val source = rememberPressSource()
     Box(
         Modifier
             .fillMaxWidth()
+            .pressable(source)
             .clip(CircleShape)
             .background(if (enabled) scheme.primary else scheme.surfaceVariant)
-            .clickable(enabled = enabled) {
+            .clickable(enabled = enabled, interactionSource = source, indication = null) {
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 onClick()
             }
@@ -586,6 +619,73 @@ fun QuietAction(label: String, onClick: () -> Unit) {
                 )
                 .clickable(onClick = onClick)
                 .padding(horizontal = 18.dp, vertical = 9.dp)
+        )
+    }
+}
+
+@Composable
+fun OutlineButton(label: String, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val source = rememberPressSource()
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .pressable(source)
+            .clip(RoundedCornerShape(14.dp))
+            .border(1.dp, scheme.outline, RoundedCornerShape(14.dp))
+            .clickable(interactionSource = source, indication = null, onClick = onClick)
+            .padding(vertical = 15.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = scheme.onSurfaceVariant.copy(alpha = 0.7f)
+        )
+    }
+}
+
+@Composable
+fun IconButton(onClick: () -> Unit, content: @Composable () -> Unit) {
+    val source = rememberPressSource()
+    Box(
+        Modifier
+            .size(40.dp)
+            .pressable(source)
+            .clip(CircleShape)
+            .clickable(interactionSource = source, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) { content() }
+}
+
+@Composable
+fun DialogTitle(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.onSurface
+    )
+}
+
+@Composable
+fun EditorField(value: String, singleLine: Boolean = false, onValueChange: (String) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(scheme.background)
+            .border(1.dp, scheme.outline, RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+    ) {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = singleLine,
+            maxLines = if (singleLine) 1 else 10,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
+            cursorBrush = SolidColor(scheme.primary),
+            modifier = Modifier.fillMaxWidth()
         )
     }
 }

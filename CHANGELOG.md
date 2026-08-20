@@ -7,6 +7,62 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 1.3.0 — 21 August 2026
+
+**The app works now. 1.1.0 and 1.2.0 did not, and this explains why.**
+
+Both shipped models the engine cannot read. A `.task` bundle is a ZIP holding
+`METADATA`, `TF_LITE_PREFILL_DECODE` and `TOKENIZER_MODEL` — that last entry is the
+SentencePiece tokenizer. The `.litertlm` files those releases used contain no such
+thing, which is exactly what "SentencePiece tokenizer not found" was telling you.
+Before that, 1.1.0 also picked a GPU-only build that could not load when the GPU
+was refused.
+
+Every model is now verified: each bundle's ZIP directory was read before shipping,
+and the tests refuse `.litertlm`, GPU-only and web builds, and check that each
+declared context window matches the size baked into its filename.
+
+**Downloads are checked before they count.** A finished download is opened and
+inspected while you are still on the download screen. A file that isn't a usable
+model is rejected there and then, with a plain explanation — instead of being saved
+and failing much later with a page of C++ paths.
+
+### Models
+
+Qwen is gone. Four remain, and these are genuinely all that exist: every other
+on-device model worth having — the whole Gemma family, Llama — sits behind a
+Hugging Face sign-in.
+
+- **SmolLM 135M** (159 MB) — the new default. Downloads in under a minute and proves
+  the app works. Too small to be a real assistant; it's there so you never spend
+  gigabytes finding out something is broken again.
+- **TinyLlama 1.1B** (1.1 GB) — plain but quick.
+- **DeepSeek-R1 1.5B** (1.7 GB) — thinks before answering, and shows the working.
+- **Phi-4-mini 3.8B** (3.7 GB) — the most capable that will run on a phone.
+
+### New
+
+- **Light, dark, and follow-the-system.** Every colour crossfades when it changes,
+  so switching reads as one movement rather than a flash.
+- **Settings is a set of pages** — Model, Appearance, Instructions, Storage, About —
+  instead of one long scroll. Back steps out one level at a time.
+- **Motion throughout**: screens slide by depth, rows arrive in sequence, buttons
+  give under your finger, the send button morphs into stop, and the download bar
+  sweeps while connecting.
+- Storage lists each downloaded model separately, so you can remove one without
+  removing all of them.
+
+### Fixed
+
+- Opening a chat pinned to a model you hadn't downloaded quietly changed the model
+  every *new* chat would use.
+- Sending a message before a model finished loading did nothing at all, silently.
+- The "earlier messages were dropped" notice carried over between conversations.
+- The download service always fetched the default model, ignoring the one the
+  screen was offering.
+
+---
+
 ## 1.2.0 — 21 August 2026
 
 **Fixes the app being unusable after a download.** Loading a model failed with
