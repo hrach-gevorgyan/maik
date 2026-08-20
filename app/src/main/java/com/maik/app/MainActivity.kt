@@ -2,26 +2,24 @@ package com.maik.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,12 +29,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -47,342 +44,105 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MaikTheme {
-                Surface(
-                    Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) { ChatScreen() }
+                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    Root()
+                }
             }
         }
     }
 }
 
 @Composable
-fun ChatScreen(vm: ChatViewModel = viewModel()) {
-    var input by remember { mutableStateOf("") }
-    val listState = rememberLazyListState()
+private fun Root(vm: ChatViewModel = viewModel()) {
+    BackHandler(enabled = vm.screen != Screen.List) { vm.openList() }
 
-    LaunchedEffect(vm.messages.size, vm.busy) {
-        val target = vm.messages.size // busy row sits one past the last message
-        if (target > 0) listState.animateScrollToItem(target)
-    }
-
-    Column(
+    Box(
         Modifier
             .fillMaxSize()
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding()
     ) {
-        Header(
-            canClear = vm.messages.isNotEmpty() && !vm.busy && vm.stage is Stage.Ready,
-            onClear = vm::clear
-        )
-
-        Box(Modifier.weight(1f)) {
-            when (val s = vm.stage) {
-                is Stage.Ready ->
-                    if (vm.messages.isEmpty()) {
-                        EmptyState()
-                    } else {
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            itemsIndexed(vm.messages) { _, msg -> Bubble(msg) }
-                            if (vm.busy) item { TypingDots() }
-                        }
-                    }
-
-                else -> SetupScreen(
-                    stage = s,
-                    spec = vm.spec,
-                    onDownload = vm::startDownload,
-                    onRetry = vm::retry
-                )
+        when (vm.screen) {
+            Screen.List -> ConversationListScreen(vm)
+            Screen.Settings -> SettingsScreen(vm)
+            Screen.Chat -> when (vm.stage) {
+                is Stage.Ready -> ChatScreen(vm)
+                else -> SetupScreen(vm)
             }
         }
-
-        if (vm.stage is Stage.Ready) {
-            Composer(
-                value = input,
-                onValueChange = { input = it },
-                enabled = !vm.busy,
-                onSend = {
-                    vm.send(input)
-                    input = ""
-                }
-            )
-        }
     }
 }
 
-/* ---------- wordmark ---------- */
+/* ================= chat ================= */
 
 @Composable
-private fun Wordmark(size: Int = 26) {
-    Text(
-        buildAnnotatedString {
-            withStyle(SpanStyle(color = MaterialTheme.colorScheme.onBackground)) { append("maik") }
-            withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) { append(".") }
-        },
-        fontFamily = HkGrotesk,
-        fontWeight = FontWeight(800),
-        fontSize = size.sp,
-        letterSpacing = (-size * 0.045).sp
-    )
-}
+private fun ChatScreen(vm: ChatViewModel) {
+    val convo = vm.current ?: return
+    var input by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+    val count = convo.messages.size
 
-@Composable
-private fun Header(canClear: Boolean, onClear: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Wordmark()
-        Spacer(Modifier.width(12.dp))
-        OnDevicePill()
-        Spacer(Modifier.weight(1f))
-        AnimatedVisibility(canClear, enter = fadeIn(), exit = fadeOut()) {
-            Text(
-                "clear",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable(onClick = onClear)
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            )
-        }
+    LaunchedEffect(count, vm.busy, vm.streaming.length) {
+        val items = count + if (vm.busy) 1 else 0
+        if (items > 0) listState.animateScrollToItem(items - 1)
     }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
-}
 
-@Composable
-private fun OnDevicePill() {
-    val pulse = rememberInfiniteTransition(label = "pulse")
-    val a by pulse.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1400, easing = LinearEasing), RepeatMode.Reverse),
-        label = "a"
-    )
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .clip(CircleShape)
-            .border(
-                BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                CircleShape
-            )
-            .padding(horizontal = 10.dp, vertical = 4.dp)
-    ) {
-        Box(
-            Modifier
-                .size(6.dp)
-                .alpha(a)
-                .background(MaterialTheme.colorScheme.primary, CircleShape)
+    Column(Modifier.fillMaxSize()) {
+        TopBar(
+            title = convo.title,
+            onBack = vm::openList,
+            trailing = { OnDevicePill() }
         )
-        Spacer(Modifier.width(7.dp))
-        Text(
-            "ON-DEVICE",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-        )
-    }
-}
 
-/* ---------- content ---------- */
-
-@Composable
-private fun EmptyState() {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .padding(horizontal = 28.dp),
-        verticalArrangement = Arrangement.Center
-    ) {
-        Wordmark(size = 64)
-        Spacer(Modifier.height(14.dp))
-        Text(
-            "A small model that never leaves your phone.\nNo account. No network. No trace.",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
-        )
-    }
-}
-
-/* ---------- first-run setup ---------- */
-
-private fun mb(bytes: Long) = "%,d".format(bytes / 1024 / 1024)
-
-@Composable
-private fun SetupScreen(
-    stage: Stage,
-    spec: ModelSpec,
-    onDownload: () -> Unit,
-    onRetry: () -> Unit
-) {
-    val scheme = MaterialTheme.colorScheme
-
-    Column(
-        Modifier
-            .fillMaxSize()
-            .padding(horizontal = 28.dp),
-        verticalArrangement = Arrangement.Center
-    ) {
-        Wordmark(size = 56)
-        Spacer(Modifier.height(18.dp))
-
-        when (stage) {
-            is Stage.NeedsModel -> {
-                Text(
-                    "maik carries its own brain. Fetch it once, then it works " +
-                        "forever with the network off.",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = scheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
-                Spacer(Modifier.height(28.dp))
-                SpecRow("MODEL", spec.label)
-                SpecRow("SIZE", "${mb(spec.approxBytes)} MB, one time")
-                SpecRow("AFTER", "Fully offline")
-                Spacer(Modifier.height(32.dp))
-                BigButton("Download model", onDownload)
-                Spacer(Modifier.height(14.dp))
-                Text(
-                    "Use Wi-Fi. Nothing you type is ever uploaded.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = scheme.onSurfaceVariant.copy(alpha = 0.35f)
-                )
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            if (convo.messages.isEmpty() && !vm.busy) {
+                item { ChatEmptyState(vm.spec.label) }
             }
-
-            is Stage.Downloading -> {
-                val pct = (stage.fraction * 100).toInt()
-                Text(
-                    "Downloading",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = scheme.onBackground
-                )
-                Spacer(Modifier.height(20.dp))
-                ProgressBar(stage.fraction)
-                Spacer(Modifier.height(12.dp))
-                Row(Modifier.fillMaxWidth()) {
-                    Text(
-                        "${mb(stage.bytes)} / ${mb(stage.total)} MB",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = scheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    )
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        "$pct%",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = scheme.primary
-                    )
+            items(convo.messages) { msg -> Bubble(msg) }
+            if (vm.busy) {
+                item {
+                    if (vm.streaming.isEmpty()) TypingDots()
+                    else Bubble(Message(vm.streaming, fromUser = false))
                 }
             }
-
-            is Stage.Loading -> {
-                Text(
-                    "Waking up",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = scheme.onBackground
-                )
-                Spacer(Modifier.height(16.dp))
-                TypingDots()
-            }
-
-            is Stage.Broken -> {
-                Text(
-                    "That didn't work",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Color(0xFFFF9BA6)
-                )
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    stage.reason,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = scheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
-                Spacer(Modifier.height(28.dp))
-                BigButton("Try again", onRetry)
-            }
-
-            is Stage.Ready -> Unit
         }
+
+        Composer(
+            value = input,
+            onValueChange = { input = it },
+            enabled = !vm.busy,
+            onSend = {
+                vm.send(input)
+                input = ""
+            }
+        )
     }
 }
 
 @Composable
-private fun SpecRow(label: String, value: String) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 7.dp)
-    ) {
+private fun ChatEmptyState(modelLabel: String) {
+    Column(Modifier.padding(top = 40.dp, bottom = 24.dp)) {
+        Wordmark(size = 44)
+        Spacer(Modifier.height(10.dp))
         Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-            modifier = Modifier.width(78.dp)
-        )
-        Text(
-            value,
+            "Running $modelLabel on this phone. Nothing you type leaves it.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onBackground
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
         )
     }
 }
-
-@Composable
-private fun ProgressBar(fraction: Float) {
-    val animated by animateFloatAsState(fraction, tween(300), label = "dl")
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(6.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        Box(
-            Modifier
-                .fillMaxWidth(animated.coerceIn(0f, 1f))
-                .fillMaxHeight()
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary)
-        )
-    }
-}
-
-@Composable
-private fun BigButton(label: String, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primary)
-            .clickable(onClick = onClick)
-            .padding(vertical = 17.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onPrimary
-        )
-    }
-}
-
-/* ---------- chat ---------- */
 
 @Composable
 private fun Bubble(msg: Message) {
-    val userShape = RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp)
-    val botShape = RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
     val scheme = MaterialTheme.colorScheme
-
     val bg = when {
         msg.isError -> Color(0xFF2A1418)
         msg.fromUser -> scheme.primary
@@ -404,7 +164,10 @@ private fun Bubble(msg: Message) {
             color = fg,
             modifier = Modifier
                 .widthIn(max = 320.dp)
-                .clip(if (msg.fromUser) userShape else botShape)
+                .clip(
+                    if (msg.fromUser) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp)
+                    else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
+                )
                 .background(bg)
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         )
@@ -412,7 +175,7 @@ private fun Bubble(msg: Message) {
 }
 
 @Composable
-private fun TypingDots() {
+fun TypingDots() {
     val t = rememberInfiniteTransition(label = "dots")
     Row(
         Modifier
@@ -441,8 +204,6 @@ private fun TypingDots() {
         }
     }
 }
-
-/* ---------- composer ---------- */
 
 @Composable
 private fun Composer(
@@ -483,40 +244,187 @@ private fun Composer(
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
                 cursorBrush = SolidColor(scheme.primary),
                 maxLines = 5,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Default),
                 modifier = Modifier.fillMaxWidth()
             )
         }
 
-        SendButton(enabled = canSend, onClick = onSend)
+        Box(
+            Modifier
+                .size(50.dp)
+                .clip(CircleShape)
+                .background(if (canSend) scheme.primary else scheme.surfaceVariant)
+                .clickable(enabled = canSend, onClick = onSend),
+            contentAlignment = Alignment.Center
+        ) {
+            ArrowUp(
+                if (canSend) scheme.onPrimary
+                else scheme.onSurfaceVariant.copy(alpha = 0.35f)
+            )
+        }
+    }
+}
+
+/* ================= shared ================= */
+
+@Composable
+fun Wordmark(size: Int = 26) {
+    Text(
+        buildAnnotatedString {
+            withStyle(SpanStyle(color = MaterialTheme.colorScheme.onBackground)) { append("maik") }
+            withStyle(SpanStyle(color = MaterialTheme.colorScheme.primary)) { append(".") }
+        },
+        fontFamily = HkGrotesk,
+        fontWeight = FontWeight(800),
+        fontSize = size.sp,
+        letterSpacing = (-size * 0.045).sp
+    )
+}
+
+@Composable
+fun OnDevicePill() {
+    val pulse = rememberInfiniteTransition(label = "pulse")
+    val a by pulse.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1400, easing = LinearEasing), RepeatMode.Reverse),
+        label = "a"
+    )
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .clip(CircleShape)
+            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        Box(
+            Modifier
+                .size(6.dp)
+                .alpha(a)
+                .background(MaterialTheme.colorScheme.primary, CircleShape)
+        )
+        Spacer(Modifier.width(7.dp))
+        Text(
+            "ON-DEVICE",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+        )
     }
 }
 
 @Composable
-private fun SendButton(enabled: Boolean, onClick: () -> Unit) {
-    val scheme = MaterialTheme.colorScheme
-    val bg by animateColorAsState(
-        if (enabled) scheme.primary else scheme.surfaceVariant,
-        label = "sendBg"
-    )
-    val fg = if (enabled) scheme.onPrimary else scheme.onSurfaceVariant.copy(alpha = 0.35f)
+fun TopBar(
+    title: String,
+    onBack: (() -> Unit)? = null,
+    trailing: @Composable (() -> Unit)? = null
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (onBack != null) {
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onBack),
+                contentAlignment = Alignment.Center
+            ) { ChevronLeft(MaterialTheme.colorScheme.onBackground) }
+        } else {
+            Spacer(Modifier.width(8.dp))
+        }
 
+        Text(
+            title,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 4.dp)
+        )
+
+        trailing?.invoke()
+        Spacer(Modifier.width(8.dp))
+    }
+    HorizontalLine()
+}
+
+@Composable
+fun HorizontalLine() {
     Box(
         Modifier
-            .size(50.dp)
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.6f))
+    )
+}
+
+@Composable
+fun BigButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        Modifier
+            .fillMaxWidth()
             .clip(CircleShape)
-            .background(bg)
-            .clickable(enabled = enabled, onClick = onClick),
+            .background(if (enabled) scheme.primary else scheme.surfaceVariant)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 17.dp),
         contentAlignment = Alignment.Center
     ) {
-        androidx.compose.foundation.Canvas(Modifier.size(20.dp)) {
-            val w = size.width
-            val stroke = Stroke(width = w * 0.12f, cap = StrokeCap.Round)
-            // shaft
-            drawLine(fg, Offset(w / 2, w * 0.88f), Offset(w / 2, w * 0.12f), stroke.width, StrokeCap.Round)
-            // head
-            drawLine(fg, Offset(w * 0.16f, w * 0.46f), Offset(w / 2, w * 0.12f), stroke.width, StrokeCap.Round)
-            drawLine(fg, Offset(w * 0.84f, w * 0.46f), Offset(w / 2, w * 0.12f), stroke.width, StrokeCap.Round)
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = if (enabled) scheme.onPrimary else scheme.onSurfaceVariant.copy(alpha = 0.4f)
+        )
+    }
+}
+
+/* ---- hand-drawn glyphs, so no icon dependency is needed ---- */
+
+@Composable
+fun ArrowUp(tint: Color) {
+    Canvas(Modifier.size(20.dp)) {
+        val w = size.width
+        val s = w * 0.12f
+        drawLine(tint, Offset(w / 2, w * 0.88f), Offset(w / 2, w * 0.12f), s, StrokeCap.Round)
+        drawLine(tint, Offset(w * 0.16f, w * 0.46f), Offset(w / 2, w * 0.12f), s, StrokeCap.Round)
+        drawLine(tint, Offset(w * 0.84f, w * 0.46f), Offset(w / 2, w * 0.12f), s, StrokeCap.Round)
+    }
+}
+
+@Composable
+fun ChevronLeft(tint: Color) {
+    Canvas(Modifier.size(18.dp)) {
+        val w = size.width
+        val s = w * 0.13f
+        drawLine(tint, Offset(w * 0.66f, w * 0.1f), Offset(w * 0.3f, w * 0.5f), s, StrokeCap.Round)
+        drawLine(tint, Offset(w * 0.3f, w * 0.5f), Offset(w * 0.66f, w * 0.9f), s, StrokeCap.Round)
+    }
+}
+
+@Composable
+fun Plus(tint: Color) {
+    Canvas(Modifier.size(18.dp)) {
+        val w = size.width
+        val s = w * 0.13f
+        drawLine(tint, Offset(w / 2, w * 0.12f), Offset(w / 2, w * 0.88f), s, StrokeCap.Round)
+        drawLine(tint, Offset(w * 0.12f, w / 2), Offset(w * 0.88f, w / 2), s, StrokeCap.Round)
+    }
+}
+
+@Composable
+fun Gear(tint: Color) {
+    Canvas(Modifier.size(18.dp)) {
+        val w = size.width
+        val s = w * 0.13f
+        // Three sliders reads as "settings" and draws cleanly at this size.
+        listOf(0.24f, 0.5f, 0.76f).forEachIndexed { i, y ->
+            drawLine(tint, Offset(w * 0.1f, w * y), Offset(w * 0.9f, w * y), s, StrokeCap.Round)
+            val knob = if (i % 2 == 0) 0.68f else 0.34f
+            drawCircle(tint, radius = w * 0.11f, center = Offset(w * knob, w * y))
         }
     }
 }

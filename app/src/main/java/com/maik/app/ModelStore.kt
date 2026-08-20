@@ -10,67 +10,87 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * A LiteRT `.task` bundle that MediaPipe can run.
+ * A LiteRT `.task` bundle MediaPipe can run.
  *
- * Both defaults are ungated on Hugging Face — they download anonymously, with no
- * token and no license click-through. Gemma 3 1B is the better model but its repo
- * is gated, which would force a sign-in step on every user; see the README.
+ * Every entry here is ungated on Hugging Face — no token, no license click-through,
+ * no account. Gemma 3 and Llama 3.2 are gated, which would put a sign-in wall in
+ * front of first launch; see the README for how to point at one anyway.
  */
 data class ModelSpec(
     val id: String,
     val label: String,
+    val params: String,
+    val blurb: String,
     val url: String,
     val approxBytes: Long
 ) {
     val fileName: String get() = "$id.task"
+    val approxMb: Long get() = approxBytes / 1024 / 1024
 }
 
 object Models {
-    val QWEN_0_5B = ModelSpec(
-        id = "qwen2.5-0.5b-instruct-q8",
-        label = "Qwen2.5 0.5B Instruct · int8",
-        url = "https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct/" +
-            "resolve/main/Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
-        approxBytes = 546_832_384L
-    )
-
-    /** Slower and heavier, but noticeably sharper. Swap DEFAULT to use it. */
     val QWEN_1_5B = ModelSpec(
         id = "qwen2.5-1.5b-instruct-q8",
-        label = "Qwen2.5 1.5B Instruct · int8",
+        label = "Qwen2.5 1.5B",
+        params = "1.5B · int8",
+        blurb = "Holds a thread, follows instructions. Recommended.",
         url = "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/" +
             "resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
         approxBytes = 1_597_913_616L
     )
 
-    val DEFAULT = QWEN_0_5B
+    val QWEN_0_5B = ModelSpec(
+        id = "qwen2.5-0.5b-instruct-q8",
+        label = "Qwen2.5 0.5B",
+        params = "0.5B · int8",
+        blurb = "Fast and small. Noticeably dumber.",
+        url = "https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct/" +
+            "resolve/main/Qwen2.5-0.5B-Instruct_multi-prefill-seq_q8_ekv1280.task",
+        approxBytes = 546_832_384L
+    )
+
+    val ALL = listOf(QWEN_1_5B, QWEN_0_5B)
+    val DEFAULT = QWEN_1_5B
+
+    fun byId(id: String?): ModelSpec = ALL.firstOrNull { it.id == id } ?: DEFAULT
 }
 
 sealed interface Download {
-    data class Progress(val bytes: Long, val total: Long) : Download {
-        val fraction: Float get() = if (total > 0) bytes.toFloat() / total else 0f
-    }
-
+    data class Progress(val bytes: Long, val total: Long) : Download
     data class Done(val file: File) : Download
     data class Failed(val reason: String) : Download
 }
 
-class ModelStore(private val context: Context, val spec: ModelSpec = Models.DEFAULT) {
+class ModelStore(private val context: Context) {
 
     private val dir = File(context.filesDir, "models").apply { mkdirs() }
-    val file = File(dir, spec.fileName)
+    private val prefs = context.getSharedPreferences("maik", Context.MODE_PRIVATE)
 
-    fun isReady(): Boolean = file.exists() && file.length() > 0
+    var spec: ModelSpec = Models.byId(prefs.getString("model", null))
+        private set
+
+    fun select(next: ModelSpec) {
+        spec = next
+        prefs.edit().putString("model", next.id).apply()
+    }
+
+    fun fileFor(s: ModelSpec = spec) = File(dir, s.fileName)
+
+    fun isReady(s: ModelSpec = spec): Boolean = fileFor(s).let { it.exists() && it.length() > 0 }
+
+    /** Every model bundle currently on disk, so the UI can show what's already paid for. */
+    fun installed(): Set<String> = Models.ALL.filter { isReady(it) }.map { it.id }.toSet()
 
     /**
-     * Streams the bundle to a `.part` file and only renames on success, so an
-     * interrupted download can never masquerade as a usable model.
+     * Streams to a `.part` file and renames only on success, so an interrupted
+     * download can never masquerade as a usable model.
      */
-    fun download(): Flow<Download> = flow {
-        val partial = File(dir, "${spec.fileName}.part")
+    fun download(s: ModelSpec = spec): Flow<Download> = flow {
+        val target = fileFor(s)
+        val partial = File(dir, "${s.fileName}.part")
         var conn: HttpURLConnection? = null
         try {
-            conn = (URL(spec.url).openConnection() as HttpURLConnection).apply {
+            conn = (URL(s.url).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = true
                 connectTimeout = 30_000
                 readTimeout = 60_000
@@ -82,7 +102,7 @@ class ModelStore(private val context: Context, val spec: ModelSpec = Models.DEFA
                 return@flow
             }
 
-            val total = conn.contentLengthLong.takeIf { it > 0 } ?: spec.approxBytes
+            val total = conn.contentLengthLong.takeIf { it > 0 } ?: s.approxBytes
             partial.delete()
 
             conn.inputStream.use { input ->
@@ -95,8 +115,8 @@ class ModelStore(private val context: Context, val spec: ModelSpec = Models.DEFA
                         if (read < 0) break
                         output.write(buffer, 0, read)
                         copied += read
-                        // Emitting on every 64 KB chunk would just thrash recomposition.
-                        if (copied - lastEmit > 2_000_000 || copied == total) {
+                        // Emitting per 64 KB chunk would just thrash recomposition.
+                        if (copied - lastEmit > 4_000_000 || copied == total) {
                             lastEmit = copied
                             emit(Download.Progress(copied, total))
                         }
@@ -104,12 +124,12 @@ class ModelStore(private val context: Context, val spec: ModelSpec = Models.DEFA
                 }
             }
 
-            if (file.exists()) file.delete()
-            if (!partial.renameTo(file)) {
+            if (target.exists()) target.delete()
+            if (!partial.renameTo(target)) {
                 emit(Download.Failed("Could not finalize the downloaded file"))
                 return@flow
             }
-            emit(Download.Done(file))
+            emit(Download.Done(target))
         } catch (e: Exception) {
             partial.delete()
             emit(Download.Failed(e.message ?: e::class.java.simpleName))
@@ -118,8 +138,8 @@ class ModelStore(private val context: Context, val spec: ModelSpec = Models.DEFA
         }
     }.flowOn(Dispatchers.IO)
 
-    fun delete() {
-        file.delete()
-        File(dir, "${spec.fileName}.part").delete()
+    fun delete(s: ModelSpec = spec) {
+        fileFor(s).delete()
+        File(dir, "${s.fileName}.part").delete()
     }
 }

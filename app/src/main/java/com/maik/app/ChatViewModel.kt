@@ -9,17 +9,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
+import com.google.mediapipe.tasks.genai.llminference.ProgressListener
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
-data class Message(
-    val text: String,
-    val fromUser: Boolean,
-    val isError: Boolean = false
-)
-
-/** What the whole screen is doing, top level. */
+/** What the engine is doing, independent of which screen you're looking at. */
 sealed interface Stage {
     data object NeedsModel : Stage
     data class Downloading(val bytes: Long, val total: Long) : Stage {
@@ -31,21 +27,94 @@ sealed interface Stage {
     data class Broken(val reason: String) : Stage
 }
 
+enum class Screen { List, Chat, Settings }
+
 class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     private val store = ModelStore(app.applicationContext)
-    val spec = store.spec
+    private val chats = ChatStore(app.applicationContext)
 
-    val messages = mutableStateListOf<Message>()
-    var stage by mutableStateOf<Stage>(if (store.isReady()) Stage.Loading else Stage.NeedsModel)
+    val conversations = mutableStateListOf<Conversation>()
+    val spec: ModelSpec get() = store.spec
+    fun installedModels(): Set<String> = store.installed()
+
+    var screen by mutableStateOf(Screen.List)
+        private set
+    var currentId by mutableStateOf<String?>(null)
+        private set
+    var stage by mutableStateOf<Stage>(Stage.NeedsModel)
         private set
     var busy by mutableStateOf(false)
         private set
 
+    /** Tokens arriving from the current generation, before they're committed. */
+    var streaming by mutableStateOf("")
+        private set
+
     private var engine: LlmInference? = null
+    private var session: LlmInferenceSession? = null
+
+    val current: Conversation?
+        get() = conversations.firstOrNull { it.id == currentId }
 
     init {
+        conversations.addAll(chats.load())
+        stage = if (store.isReady()) Stage.Loading else Stage.NeedsModel
         if (store.isReady()) loadEngine()
+    }
+
+    /* ---------- navigation ---------- */
+
+    fun openList() {
+        screen = Screen.List
+        currentId = null
+    }
+
+    fun openSettings() {
+        screen = Screen.Settings
+    }
+
+    fun open(id: String) {
+        currentId = id
+        screen = Screen.Chat
+    }
+
+    fun newChat() {
+        val fresh = Conversation(id = UUID.randomUUID().toString(), title = "New chat")
+        conversations.add(0, fresh)
+        currentId = fresh.id
+        screen = Screen.Chat
+    }
+
+    fun delete(id: String) {
+        conversations.removeAll { it.id == id }
+        if (currentId == id) {
+            currentId = null
+            screen = Screen.List
+        }
+        persist()
+    }
+
+    fun rename(id: String, title: String) {
+        val clean = title.trim().ifEmpty { return }
+        replace(id) { it.copy(title = clean) }
+        persist()
+    }
+
+    fun deleteAll() {
+        conversations.clear()
+        currentId = null
+        screen = Screen.List
+        persist()
+    }
+
+    /* ---------- model ---------- */
+
+    fun selectModel(next: ModelSpec) {
+        if (next.id == store.spec.id) return
+        closeEngine()
+        store.select(next)
+        stage = if (store.isReady()) Stage.Loading.also { loadEngine() } else Stage.NeedsModel
     }
 
     fun startDownload() {
@@ -62,13 +131,23 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun retry() {
+        if (store.isReady()) loadEngine() else stage = Stage.NeedsModel
+    }
+
+    fun deleteModel() {
+        closeEngine()
+        store.delete()
+        stage = Stage.NeedsModel
+    }
+
     private fun loadEngine() {
         stage = Stage.Loading
         viewModelScope.launch {
             try {
                 engine = withContext(Dispatchers.IO) {
                     val options = LlmInference.LlmInferenceOptions.builder()
-                        .setModelPath(store.file.absolutePath)
+                        .setModelPath(store.fileFor().absolutePath)
                         .setMaxTokens(1280)
                         .build()
                     LlmInference.createFromOptions(getApplication(), options)
@@ -82,67 +161,114 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun send(prompt: String) {
-        val trimmed = prompt.trim()
-        val llm = engine
-        if (trimmed.isEmpty() || busy || llm == null || stage !is Stage.Ready) return
+    private fun closeEngine() {
+        runCatching { session?.close() }
+        runCatching { engine?.close() }
+        session = null
+        engine = null
+    }
 
-        messages += Message(trimmed, fromUser = true)
+    /* ---------- generation ---------- */
+
+    fun send(text: String) {
+        val prompt = text.trim()
+        val llm = engine
+        val convo = current
+        if (prompt.isEmpty() || busy || llm == null || convo == null || stage !is Stage.Ready) return
+
+        val isFirst = convo.messages.isEmpty()
+        replace(convo.id) {
+            it.copy(
+                title = if (isFirst) Conversation.titleFrom(prompt) else it.title,
+                messages = it.messages + Message(prompt, fromUser = true),
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+        bumpToTop(convo.id)
+        persist()
+
         busy = true
+        streaming = ""
+        val conversationId = convo.id
 
         viewModelScope.launch {
-            val reply = try {
+            try {
+                val built = buildPrompt(conversationId)
                 withContext(Dispatchers.Default) {
-                    // A fresh session per turn; we replay the transcript ourselves so
-                    // that "clear" genuinely clears and context never leaks between runs.
-                    val sessionOptions = LlmInferenceSession.LlmInferenceSessionOptions.builder()
+                    val options = LlmInferenceSession.LlmInferenceSessionOptions.builder()
                         .setTemperature(0.7f)
                         .setTopK(40)
                         .build()
-                    LlmInferenceSession.createFromOptions(llm, sessionOptions).use { session ->
-                        session.addQueryChunk(buildPrompt())
-                        session.generateResponse()
-                    }
-                }.trim()
+                    // A fresh session per turn: we replay the transcript ourselves, so
+                    // "delete" genuinely deletes and context never leaks across chats.
+                    val s = LlmInferenceSession.createFromOptions(llm, options)
+                    session = s
+                    s.addQueryChunk(built)
+                    s.generateResponseAsync(ProgressListener<String> { partial, done ->
+                        onToken(conversationId, partial, done)
+                    })
+                }
             } catch (e: Throwable) {
-                messages += Message(
-                    e.message ?: e::class.java.simpleName,
-                    fromUser = false,
-                    isError = true
-                )
-                busy = false
-                return@launch
+                finish(conversationId, e.message ?: e::class.java.simpleName, isError = true)
             }
-
-            messages += Message(reply.ifEmpty { "…" }, fromUser = false)
-            busy = false
         }
     }
 
-    fun clear() {
-        if (!busy) messages.clear()
+    private fun onToken(conversationId: String, partial: String?, done: Boolean) {
+        // Callbacks arrive off the main thread; hop back before touching state.
+        viewModelScope.launch(Dispatchers.Main) {
+            streaming += partial.orEmpty()
+            if (done) finish(conversationId, streaming.trim().ifEmpty { "…" }, isError = false)
+        }
     }
 
-    fun retry() {
-        stage = if (store.isReady()) Stage.Loading.also { loadEngine() } else Stage.NeedsModel
+    private fun finish(conversationId: String, text: String, isError: Boolean) {
+        runCatching { session?.close() }
+        session = null
+        streaming = ""
+        busy = false
+        replace(conversationId) {
+            it.copy(
+                messages = it.messages + Message(text, fromUser = false, isError = isError),
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+        persist()
     }
 
     /** Qwen2.5 expects ChatML; the bundle ships a tokenizer, not a chat template. */
-    private fun buildPrompt(): String = buildString {
-        append("<|im_start|>system\n")
-        append("You are maik, a concise assistant running entirely on the user's phone.")
-        append("<|im_end|>\n")
-        messages.filterNot { it.isError }.forEach { m ->
-            append("<|im_start|>${if (m.fromUser) "user" else "assistant"}\n")
-            append(m.text)
+    private fun buildPrompt(conversationId: String): String {
+        val convo = conversations.firstOrNull { it.id == conversationId } ?: return ""
+        return buildString {
+            append("<|im_start|>system\n")
+            append("You are maik, a helpful assistant running entirely on the user's phone. ")
+            append("Answer clearly and concisely.")
             append("<|im_end|>\n")
+            convo.messages.filterNot { it.isError }.forEach { m ->
+                append("<|im_start|>${if (m.fromUser) "user" else "assistant"}\n")
+                append(m.text)
+                append("<|im_end|>\n")
+            }
+            append("<|im_start|>assistant\n")
         }
-        append("<|im_start|>assistant\n")
     }
+
+    /* ---------- plumbing ---------- */
+
+    private inline fun replace(id: String, transform: (Conversation) -> Conversation) {
+        val index = conversations.indexOfFirst { it.id == id }
+        if (index >= 0) conversations[index] = transform(conversations[index])
+    }
+
+    private fun bumpToTop(id: String) {
+        val index = conversations.indexOfFirst { it.id == id }
+        if (index > 0) conversations.add(0, conversations.removeAt(index))
+    }
+
+    private fun persist() = chats.save(conversations.toList())
 
     override fun onCleared() {
         super.onCleared()
-        engine?.close()
-        engine = null
+        closeEngine()
     }
 }

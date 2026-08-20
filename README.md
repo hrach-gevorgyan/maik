@@ -26,6 +26,10 @@ Turn on airplane mode. Ask it something. It answers.
 
 <br>
 
+**Saved conversations** · **streaming replies** · **swappable models** · **rename & delete** · **airplane mode**
+
+<br>
+
 Most "AI chat" apps are a text box wired to somebody else's GPU. `maik` isn't.
 The weights sit in your app's private storage, inference runs on your silicon, and
 the only network request the app will ever make is the one that fetched the model.
@@ -78,14 +82,14 @@ that the radio is never touched again. The `INTERNET` permission exists for that
 one download and nothing else.
 
 <table>
-<tr><td><b>Default model</b></td><td>Qwen2.5 0.5B Instruct · int8 · Apache 2.0</td></tr>
-<tr><td><b>Download</b></td><td>~521 MB, once, no token, no license gate</td></tr>
+<tr><td><b>Default model</b></td><td>Qwen2.5 1.5B Instruct · int8 · Apache 2.0</td></tr>
+<tr><td><b>Download</b></td><td>~1.5 GB, once, no token, no license gate</td></tr>
 <tr><td><b>Runtime</b></td><td><code>com.google.mediapipe:tasks-genai</code></td></tr>
 <tr><td><b>Runs on</b></td><td>Any Android 8.0+ phone. Yes, including your S24 Ultra.</td></tr>
 </table>
 
-**Want it sharper?** [`ModelStore.kt`](app/src/main/java/com/maik/app/ModelStore.kt)
-also has **Qwen2.5 1.5B** (~1.5 GB) wired up — change `Models.DEFAULT`, one line.
+Tight on storage? Settings has a **0.5B** build at ~521 MB. It's three times
+smaller and noticeably dumber — the tradeoff is exactly what you'd expect.
 
 <details>
 <summary><b>Why not Gemma 3 1B, which is better at this size?</b></summary>
@@ -145,18 +149,24 @@ No gradients. No glassmorphism. No purple.
 
 ```
 app/src/main/java/com/maik/app/
-├── MainActivity.kt    Compose UI — setup screen, bubbles, typing dots, composer
-├── ChatViewModel.kt   stage machine, model lifecycle, prompt assembly
+├── MainActivity.kt    nav, chat screen, shared components, hand-drawn glyphs
+├── Screens.kt         conversation list, settings, first-run setup
+├── ChatViewModel.kt   stage machine, model lifecycle, streaming, prompt assembly
 ├── ModelStore.kt      model catalog + a download that can't half-succeed
+├── Conversations.kt   chat model, JSON persistence, relative timestamps
 └── Theme.kt           palette + HK Grotesk type scale
 ```
 
-Two things worth knowing before you fork it:
+Three things worth knowing before you fork it:
 
 **The model is stateless between turns.** A fresh `LlmInferenceSession` per message,
-with the transcript replayed each time — so `clear` genuinely clears and context
-never bleeds between conversations. Fine for short chats; long ones will hit the
-1280-token window, so start summarizing or windowing.
+with the transcript replayed each time — so deleting a chat genuinely deletes it and
+context never bleeds between conversations. Fine for short chats; long ones will hit
+the 1280-token window, so start summarizing or windowing.
+
+**History is one JSON file**, rewritten on every change. A few hundred KB at worst,
+so a database would be ceremony. A corrupt file costs you your chats, not the app —
+it fails to an empty list rather than a crash loop.
 
 **Downloads land in a `.part` file** and are renamed only on success. A dropped
 connection can never leave behind something that *looks* like a working model. If
