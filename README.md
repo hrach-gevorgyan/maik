@@ -74,7 +74,9 @@ revoke from a dashboard.
 <tr><td width="180"><b>Conversations</b></td><td>As many as you like, titled from your first message, searchable by title or content. Long-press to rename or delete.</td></tr>
 <tr><td><b>Streaming</b></td><td>Replies arrive word by word. Hit stop mid-sentence and it keeps what was already written.</td></tr>
 <tr><td><b>Copy</b></td><td>Long-press any message.</td></tr>
-<tr><td><b>Four models</b></td><td>Gemma 4 E2B by default, plus two Liquid AI builds and an older fallback. Switch anytime; each stays downloaded.</td></tr>
+<tr><td><b>Three models</b></td><td>Pick per conversation from the chat header. Each chat keeps the model it started with.</td></tr>
+<tr><td><b>Formatted replies</b></td><td>Markdown renders — headings, lists, bold, and code blocks that scroll instead of stretching.</td></tr>
+<tr><td><b>Regenerate</b></td><td>Ask again from the same point when an answer misses.</td></tr>
 <tr><td><b>Visible thinking</b></td><td>When a model reasons before answering, you watch it happen — then the reasoning folds away into a line you can expand.</td></tr>
 <tr><td><b>Honest downloads</b></td><td>Background service with a progress notification, survives screen lock, warns before spending your mobile data.</td></tr>
 <tr><td><b>GPU</b></td><td>Used when the driver allows it, CPU when it doesn't. Settings tells you which you got.</td></tr>
@@ -91,7 +93,7 @@ that the radio is never touched again. `INTERNET` exists for that one download a
 nothing else.
 
 <table>
-<tr><td><b>Default model</b></td><td>Gemma 4 E2B · Apache 2.0 · ~1.9 GB</td></tr>
+<tr><td><b>Default model</b></td><td>LFM2.5 1.2B · 736 MB</td></tr>
 <tr><td><b>Runtime</b></td><td><code>com.google.mediapipe:tasks-genai</code>, LiteRT-LM bundles</td></tr>
 <tr><td><b>Context</b></td><td>4096 tokens</td></tr>
 <tr><td><b>Runs on</b></td><td>Any ARM64 Android 8.0+ phone. Yes, including your S24 Ultra.</td></tr>
@@ -104,13 +106,18 @@ rules out most of the obvious names.
 
 | Model | Params | Download | License | Character |
 |---|---|---|---|---|
-| **Gemma 4 E2B** *(default)* | ~2B effective | 1.9 GB | Apache 2.0 | The sharpest. Google's newest small model |
+| **LFM2.5 1.2B** *(default)* | 1.2B | 736 MB | LFM open | Quickest to answer, smallest download |
 | **LFM2.5 2.6B** | 2.6B | 1.6 GB | LFM open | More depth, still built for phones |
-| **LFM2.5 1.2B** | 1.2B | 736 MB | LFM open | The fastest, and the smallest download |
-| Qwen2.5 1.5B | 1.5B | 1.5 GB | Apache 2.0 | Fallback in the older `.task` format |
+| **Gemma 4 E2B** | ~2B effective | 2.5 GB | Apache 2.0 | The most capable, and the largest |
 
-Switching is two taps in Settings, and each model stays on disk once fetched, so
-you can compare them on your own phone rather than taking anyone's word for it.
+Switch from the chat header or in Settings. Each model stays on disk once fetched,
+and each conversation remembers the one it started with — so you can compare them
+on your own phone rather than taking anyone's word for it.
+
+Only *generic* bundles are listed. Vendors also publish smaller `-gpu` variants, but
+those refuse to load on the CPU executor — and since GPU initialisation can be
+refused by any given driver, a model that cannot fall back is one that sometimes
+simply doesn't work. That mistake shipped in 1.1.0; a test now prevents it.
 
 <details>
 <summary><b>Why these four, and not the obvious names?</b></summary>
@@ -216,6 +223,7 @@ app/src/main/java/com/maik/app/
 ├── Screens.kt          conversation list, settings, first-run setup
 ├── ChatViewModel.kt    stage machine, model lifecycle, streaming, context budget
 ├── Thinking.kt         the reasoning indicator and its collapsible trace
+├── Markdown.kt         a small Markdown parser and renderer
 ├── ModelStore.kt       model catalog + a download that can't half-succeed
 ├── DownloadService.kt  foreground service so downloads survive the lock screen
 ├── Conversations.kt    chat model, JSON persistence, relative timestamps
@@ -252,7 +260,7 @@ your chats, not the app — it fails to an empty list rather than a crash loop.
 - **Long chats forget.** 4096 tokens is roughly 45 exchanges.
 - **No download resume.** Cancel at 1.4 GB and you start over.
 - **Plain text only.** Markdown renders as its own asterisks.
-- **No tests.**
+- **No UI tests.** The logic is covered; the screens are not.
 
 ## Requirements
 

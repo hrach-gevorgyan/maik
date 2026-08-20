@@ -1,23 +1,20 @@
 package com.maik.app
 
-import android.os.Bundle
-import androidx.activity.ComponentActivity
-import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
+import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
@@ -27,24 +24,30 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -65,8 +68,8 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun Root(vm: ChatViewModel = viewModel()) {
+    // Back always means "up one level", never "leave the app mid-chat".
     BackHandler(enabled = vm.screen != Screen.List) { vm.openList() }
-    AskForNotifications()
 
     Box(
         Modifier
@@ -86,19 +89,6 @@ private fun Root(vm: ChatViewModel = viewModel()) {
     }
 }
 
-/**
- * The download runs as a foreground service, which needs a notification to show
- * its progress. Denying this doesn't stop the download — it just hides it.
- */
-@Composable
-private fun AskForNotifications() {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
-    LaunchedEffect(Unit) { launcher.launch(Manifest.permission.POST_NOTIFICATIONS) }
-}
-
 /* ================= chat ================= */
 
 @Composable
@@ -106,7 +96,9 @@ private fun ChatScreen(vm: ChatViewModel) {
     val convo = vm.current ?: return
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+    val haptics = LocalHapticFeedback.current
     val count = convo.messages.size
+    var pickingModel by remember { mutableStateOf(false) }
 
     LaunchedEffect(count, vm.busy, vm.streaming.length) {
         val items = count + if (vm.busy) 1 else 0
@@ -117,7 +109,18 @@ private fun ChatScreen(vm: ChatViewModel) {
         TopBar(
             title = convo.title,
             onBack = vm::openList,
-            trailing = { OnDevicePill() }
+            trailing = {
+                // Tapping the model name swaps which one answers in this chat.
+                Text(
+                    vm.modelFor(convo).label,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable(enabled = !vm.busy) { pickingModel = true }
+                        .padding(horizontal = 8.dp, vertical = 5.dp)
+                )
+            }
         )
 
         LazyColumn(
@@ -129,11 +132,12 @@ private fun ChatScreen(vm: ChatViewModel) {
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             if (convo.messages.isEmpty() && !vm.busy) {
-                item { ChatEmptyState(vm.spec.label) }
+                item { ChatEmptyState(vm.modelFor(convo).label) }
             }
             if (vm.dropped > 0) {
                 item { ContextNotice(vm.dropped) }
             }
+
             items(convo.messages) { msg ->
                 Column {
                     Bubble(msg)
@@ -142,27 +146,41 @@ private fun ChatScreen(vm: ChatViewModel) {
                     }
                 }
             }
+
             if (vm.busy) {
                 item {
                     val live = vm.live
                     when {
-                        // Still inside the <think> block, or nothing back yet.
-                        live.stillThinking ->
-                            ThinkingCard(live.reasoning, vm.turnStartedAt)
+                        live.stillThinking -> ThinkingCard(live.reasoning, vm.turnStartedAt)
+                        live.answer.isNotEmpty() ->
+                            Bubble(Message(live.answer, fromUser = false))
 
-                        live.answer.isEmpty() && vm.streaming.isEmpty() ->
-                            if (vm.spec.reasoning && vm.thinkingEnabled) {
-                                ThinkingCard("", vm.turnStartedAt)
-                            } else {
-                                TypingDots()
-                            }
-
-                        live.answer.isEmpty() -> TypingDots()
-
-                        else -> Bubble(Message(live.answer, fromUser = false))
+                        else -> TypingDots()
                     }
                 }
             }
+
+            // Offered only when there is something to replace, and nothing running.
+            if (!vm.busy && convo.messages.lastOrNull()?.fromUser == false) {
+                item {
+                    QuietAction("Regenerate") {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        vm.regenerate()
+                    }
+                }
+            }
+        }
+
+        if (pickingModel) {
+            ModelPicker(
+                current = vm.modelFor(convo),
+                installed = vm.installedModels(),
+                onPick = {
+                    vm.setModelForCurrentChat(it)
+                    pickingModel = false
+                },
+                onDismiss = { pickingModel = false }
+            )
         }
 
         Composer(
@@ -170,10 +188,14 @@ private fun ChatScreen(vm: ChatViewModel) {
             onValueChange = { input = it },
             busy = vm.busy,
             onSend = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 vm.send(input)
                 input = ""
             },
-            onStop = vm::stop
+            onStop = {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                vm.stop()
+            }
         )
     }
 }
@@ -196,6 +218,8 @@ private fun ChatEmptyState(modelLabel: String) {
 private fun Bubble(msg: Message) {
     val scheme = MaterialTheme.colorScheme
     val context = LocalContext.current
+    val haptics = LocalHapticFeedback.current
+
     val bg = when {
         msg.isError -> Color(0xFF2A1418)
         msg.fromUser -> scheme.primary
@@ -211,12 +235,9 @@ private fun Bubble(msg: Message) {
         Modifier.fillMaxWidth(),
         horizontalArrangement = if (msg.fromUser) Arrangement.End else Arrangement.Start
     ) {
-        Text(
-            text = msg.text,
-            style = MaterialTheme.typography.bodyLarge,
-            color = fg,
-            modifier = Modifier
-                .widthIn(max = 320.dp)
+        Box(
+            Modifier
+                .widthIn(max = 330.dp)
                 .clip(
                     if (msg.fromUser) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp)
                     else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
@@ -224,10 +245,20 @@ private fun Bubble(msg: Message) {
                 .background(bg)
                 .combinedClickable(
                     onClick = {},
-                    onLongClick = { copyToClipboard(context, msg.text) }
+                    onLongClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        copyToClipboard(context, msg.text)
+                    }
                 )
                 .padding(horizontal = 16.dp, vertical = 12.dp)
-        )
+        ) {
+            // What the user typed is literal; only replies are marked up.
+            if (msg.fromUser || msg.isError) {
+                Text(msg.text, style = MaterialTheme.typography.bodyLarge, color = fg)
+            } else {
+                MarkdownText(msg.text, fg)
+            }
+        }
     }
 }
 
@@ -312,7 +343,7 @@ private fun Composer(
         ) {
             if (value.isEmpty()) {
                 Text(
-                    "Ask maik anything…",
+                    if (busy) "maik is answering…" else "Ask maik anything…",
                     style = MaterialTheme.typography.bodyLarge,
                     color = scheme.onSurfaceVariant.copy(alpha = 0.4f)
                 )
@@ -346,6 +377,74 @@ private fun Composer(
             }
         }
     }
+}
+
+/**
+ * Switches which model answers in this chat. Models that are not downloaded are
+ * still offered — picking one takes you to the download screen rather than
+ * pretending the option doesn't exist.
+ */
+@Composable
+private fun ModelPicker(
+    current: ModelSpec,
+    installed: Set<String>,
+    onPick: (ModelSpec) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = scheme.surfaceVariant,
+        title = {
+            Text(
+                "Answer with",
+                style = MaterialTheme.typography.titleMedium,
+                color = scheme.onSurface
+            )
+        },
+        text = {
+            Column {
+                Models.ALL.forEach { model ->
+                    val selected = model.id == current.id
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onPick(model) }
+                            .padding(vertical = 12.dp, horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            Modifier
+                                .size(8.dp)
+                                .background(
+                                    if (selected) scheme.primary else Color.Transparent,
+                                    CircleShape
+                                )
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Text(
+                            model.label,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = scheme.onSurface
+                        )
+                        Spacer(Modifier.weight(1f))
+                        Text(
+                            if (model.id in installed) "ready" else "${model.approxMb} MB",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (model.id in installed) scheme.primary
+                            else scheme.onSurfaceVariant.copy(alpha = 0.35f)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close", color = scheme.onSurfaceVariant)
+            }
+        }
+    )
 }
 
 /* ================= shared ================= */
@@ -449,12 +548,16 @@ fun HorizontalLine() {
 @Composable
 fun BigButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
+    val haptics = LocalHapticFeedback.current
     Box(
         Modifier
             .fillMaxWidth()
             .clip(CircleShape)
             .background(if (enabled) scheme.primary else scheme.surfaceVariant)
-            .clickable(enabled = enabled, onClick = onClick)
+            .clickable(enabled = enabled) {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                onClick()
+            }
             .padding(vertical = 17.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -462,6 +565,27 @@ fun BigButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
             label,
             style = MaterialTheme.typography.labelLarge,
             color = if (enabled) scheme.onPrimary else scheme.onSurfaceVariant.copy(alpha = 0.4f)
+        )
+    }
+}
+
+/** A low-key text action, centred — used where a button would shout. */
+@Composable
+fun QuietAction(label: String, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+            modifier = Modifier
+                .clip(CircleShape)
+                .border(
+                    1.dp,
+                    MaterialTheme.colorScheme.outline,
+                    CircleShape
+                )
+                .clickable(onClick = onClick)
+                .padding(horizontal = 18.dp, vertical = 9.dp)
         )
     }
 }
@@ -486,8 +610,8 @@ fun StopSquare(tint: Color) {
         drawRoundRect(
             color = tint,
             topLeft = Offset(w * 0.14f, w * 0.14f),
-            size = androidx.compose.ui.geometry.Size(w * 0.72f, w * 0.72f),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.16f)
+            size = Size(w * 0.72f, w * 0.72f),
+            cornerRadius = CornerRadius(w * 0.16f)
         )
     }
 }
@@ -513,11 +637,10 @@ fun Plus(tint: Color) {
 }
 
 @Composable
-fun Gear(tint: Color) {
+fun Sliders(tint: Color) {
     Canvas(Modifier.size(18.dp)) {
         val w = size.width
         val s = w * 0.13f
-        // Three sliders reads as "settings" and draws cleanly at this size.
         listOf(0.24f, 0.5f, 0.76f).forEachIndexed { i, y ->
             drawLine(tint, Offset(w * 0.1f, w * y), Offset(w * 0.9f, w * y), s, StrokeCap.Round)
             val knob = if (i % 2 == 0) 0.68f else 0.34f

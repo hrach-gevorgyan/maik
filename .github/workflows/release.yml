@@ -72,7 +72,7 @@ jobs:
           else
             TASK=assembleDebug
           fi
-          ./gradlew $TASK \
+          ./gradlew test $TASK \
             -PmaikVersionName=${{ steps.version.outputs.name }} \
             -PmaikVersionCode=${{ steps.version.outputs.code }} \
             --no-daemon

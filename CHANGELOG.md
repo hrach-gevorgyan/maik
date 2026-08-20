@@ -7,6 +7,50 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 1.2.0 — 21 August 2026
+
+**Fixes the app being unusable after a download.** Loading a model failed with
+"Unable to create LlmLiteRTXnnpackExecutor, model is null". The cause was a
+GPU-only model bundle: when the GPU delegate is refused, the app falls back to the
+CPU, and a GPU-only file cannot be read there. Every model now ships in a build
+that runs on either. A test now blocks GPU-only bundles from ever being listed
+again, and if a model genuinely can't load, the screen says which one and offers
+to fetch it again or switch — instead of showing a wall of C++ file paths.
+
+### New
+
+- **Formatted replies.** Bold, italic, headings, lists, inline code and fenced code
+  blocks now render properly instead of showing their own asterisks and backticks.
+  Code scrolls sideways rather than stretching the message off-screen.
+- **Regenerate.** Didn't like the answer? Ask again from the same point.
+- **A model per conversation.** Tap the model name in the chat header to switch who
+  answers. Each chat remembers the model it started with, so changing your default
+  never rewrites the voice of an old conversation.
+- **Editable instructions.** A standing note handed to the model before every
+  conversation, setting its tone and ground rules. Settings explains what it does
+  and can reset it.
+- **Haptics** on send, stop, regenerate, long-press and new chat.
+- **Tests** — 29 of them, covering reasoning parsing, Markdown, titles, timestamps,
+  token budgeting and the model catalogue. CI runs them, and a release cannot ship
+  if they fail.
+
+### Changed
+
+- **Qwen is gone.** The line-up is now LFM2.5 1.2B (the default — smallest and
+  quickest), LFM2.5 2.6B, and Gemma 4 E2B.
+- **First launch no longer demands notification access.** It is requested at the
+  moment a download starts, which is the only reason it was ever needed.
+- **The download screen tells the truth at every step**: a moving bar while
+  connecting rather than a frozen 0%, real progress once bytes arrive, and a
+  distinct "warming up" state for first load.
+- **Downloads that end early are caught** rather than being saved as a broken model
+  you only discover later. Free space is checked before starting, and failures now
+  read like sentences: "No connection", "The connection timed out".
+- Search appears once you have five or more conversations, instead of sitting above
+  an empty list.
+
+---
+
 ## 1.1.0 — 20 August 2026
 
 **Four models to choose from, and a much better one by default.**

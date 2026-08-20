@@ -20,8 +20,16 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Compile and assemble
-        run: ./gradlew assembleDebug --no-daemon
+      - name: Test and assemble
+        run: ./gradlew test assembleDebug --no-daemon
+
+      - name: Publish test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: app/build/reports/tests/
+          retention-days: 14
 
       - uses: actions/upload-artifact@v4
         with:

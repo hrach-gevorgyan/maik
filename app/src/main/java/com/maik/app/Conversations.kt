@@ -22,8 +22,8 @@ data class Message(
  * Splits a reasoning model's raw output into the part it was working through and
  * the part meant for the reader.
  *
- * Qwen3 wraps its reasoning in `<think>` … `</think>`. The opening tag is sometimes
- * implied rather than emitted, so an unterminated stream is treated as still
+ * Reasoning models wrap their working in `<think>` … `</think>`. The opening tag is
+ * sometimes implied rather than emitted, so an unterminated stream counts as still
  * thinking only when a tag actually opened it.
  */
 data class Split(val reasoning: String, val answer: String, val stillThinking: Boolean) {
@@ -56,7 +56,13 @@ data class Conversation(
     val title: String,
     val messages: List<Message> = emptyList(),
     val createdAt: Long = System.currentTimeMillis(),
-    val updatedAt: Long = System.currentTimeMillis()
+    val updatedAt: Long = System.currentTimeMillis(),
+    /**
+     * Which model this chat is held with. Null means "whatever is currently
+     * selected" — set on the first reply so a conversation keeps one voice even
+     * after you switch models elsewhere.
+     */
+    val modelId: String? = null
 ) {
     val preview: String
         get() = messages.lastOrNull()?.text?.replace('\n', ' ')?.take(90).orEmpty()
@@ -97,7 +103,7 @@ class ChatStore(context: Context) {
     }
 }
 
-/** "just now", "14m", "3h", "Tue", "12 Mar" — compact enough for a list row. */
+/** "now", "14m", "3h", "2d", "12 Mar" — compact enough for a list row. */
 fun relativeTime(at: Long, now: Long = System.currentTimeMillis()): String {
     val delta = (now - at).coerceAtLeast(0)
     val minutes = delta / 60_000

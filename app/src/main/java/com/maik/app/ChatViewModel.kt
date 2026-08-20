@@ -28,12 +28,14 @@ sealed interface Stage {
 
     data object Loading : Stage
     data object Ready : Stage
-    data class Broken(val reason: String) : Stage
+
+    /** [detail] is the raw engine message, kept for the expandable section. */
+    data class Broken(val summary: String, val detail: String, val refetch: Boolean) : Stage
 }
 
 enum class Screen { List, Chat, Settings }
 
-/** Which compute unit the loaded engine actually ended up on. */
+/** Which compute unit the loaded engine ended up on. */
 enum class Backend { GPU, CPU, NONE }
 
 class ChatViewModel(app: Application) : AndroidViewModel(app) {
@@ -42,8 +44,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val chats = ChatStore(app.applicationContext)
 
     val conversations = mutableStateListOf<Conversation>()
+
+    /** The model the app is set to use. A chat may pin a different one. */
     val spec: ModelSpec get() = store.spec
     fun installedModels(): Set<String> = store.installed()
+    fun bytesOnDisk(): Long = store.bytesOnDisk()
 
     var screen by mutableStateOf(Screen.List)
         private set
@@ -57,6 +62,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var query by mutableStateOf("")
 
+    var systemPrompt by mutableStateOf(DEFAULT_SYSTEM_PROMPT)
+        private set
+    var thinkingEnabled by mutableStateOf(true)
+        private set
+
     /** Raw tokens from the current generation, reasoning tags and all. */
     var streaming by mutableStateOf("")
         private set
@@ -68,9 +78,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     var turnStartedAt by mutableStateOf(0L)
         private set
 
-    var thinkingEnabled by mutableStateOf(true)
-        private set
-
     /** How many old messages fell outside the context window on the last turn. */
     var dropped by mutableStateOf(0)
         private set
@@ -78,11 +85,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private var engine: LlmInference? = null
     private var session: LlmInferenceSession? = null
 
+    /** Which spec [engine] was built from, so a chat can demand a different one. */
+    private var loadedId: String? = null
+
     /** Bumped per turn so a stopped generation's stray callbacks are ignored. */
     private var generation = 0
 
     val current: Conversation?
         get() = conversations.firstOrNull { it.id == currentId }
+
+    /** The model a chat is held with: whatever it pinned, else the current choice. */
+    fun modelFor(convo: Conversation?): ModelSpec =
+        convo?.modelId?.let { Models.byId(it) } ?: store.spec
 
     val visibleConversations: List<Conversation>
         get() {
@@ -97,9 +111,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     init {
         conversations.addAll(chats.load())
         thinkingEnabled = store.thinking
+        systemPrompt = store.systemPrompt
         watchDownloads()
         stage = when {
-            store.isReady() -> Stage.Loading.also { loadEngine() }
+            store.isReady() -> Stage.Loading.also { loadEngine(store.spec) }
             DownloadBus.running.value -> Stage.Downloading(0, spec.approxBytes)
             else -> Stage.NeedsModel
         }
@@ -119,6 +134,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun open(id: String) {
         currentId = id
         screen = Screen.Chat
+        // A chat pinned to another model needs that model loaded before it can talk.
+        ensureEngineFor(modelFor(conversations.firstOrNull { it.id == id }))
     }
 
     fun newChat() {
@@ -127,6 +144,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         currentId = fresh.id
         query = ""
         screen = Screen.Chat
+        ensureEngineFor(store.spec)
     }
 
     fun delete(id: String) {
@@ -151,16 +169,47 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         persist()
     }
 
+    /* ---------- settings ---------- */
+
+    fun setThinking(enabled: Boolean) {
+        store.setThinking(enabled)
+        thinkingEnabled = enabled
+    }
+
+    fun updateSystemPrompt(text: String) {
+        store.setSystemPrompt(text)
+        systemPrompt = store.systemPrompt
+    }
+
     /* ---------- model ---------- */
 
     fun selectModel(next: ModelSpec) {
         if (next.id == store.spec.id) return
-        closeEngine()
         store.select(next)
-        stage = if (store.isReady()) Stage.Loading.also { loadEngine() } else Stage.NeedsModel
+        closeEngine()
+        stage = if (store.isReady(next)) Stage.Loading.also { loadEngine(next) } else Stage.NeedsModel
     }
 
-    /** True when the active connection would bill you for a 1.5 GB download. */
+    /** Pins the open chat to a model, downloading or loading it if needed. */
+    fun setModelForCurrentChat(next: ModelSpec) {
+        val convo = current ?: return
+        replace(convo.id) { it.copy(modelId = next.id) }
+        persist()
+        ensureEngineFor(next)
+    }
+
+    private fun ensureEngineFor(target: ModelSpec) {
+        if (loadedId == target.id && stage is Stage.Ready) return
+        if (!store.isReady(target)) {
+            store.select(target)
+            stage = Stage.NeedsModel
+            return
+        }
+        closeEngine()
+        loadEngine(target)
+    }
+
+    /** True when the active connection would bill you for the download. */
     fun onMeteredNetwork(): Boolean {
         val cm = getApplication<Application>()
             .getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
@@ -181,74 +230,88 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             Intent(getApplication(), DownloadService::class.java)
                 .setAction(DownloadService.ACTION_CANCEL)
         )
+        stage = Stage.NeedsModel
     }
 
-    /** Attaches to whatever the service is doing, whenever the UI comes back. */
     private fun watchDownloads() {
         viewModelScope.launch {
             DownloadBus.state.collect { event ->
                 when (event) {
                     is Download.Progress -> stage = Stage.Downloading(event.bytes, event.total)
-                    is Download.Failed -> stage = Stage.Broken(event.reason)
-                    is Download.Done -> if (stage !is Stage.Ready) loadEngine()
+                    is Download.Failed ->
+                        if (event.reason == "Cancelled") stage = Stage.NeedsModel
+                        else stage = Stage.Broken(event.reason, "", refetch = true)
+
+                    is Download.Done -> if (stage !is Stage.Ready) loadEngine(store.spec)
                     null -> Unit
                 }
             }
         }
     }
 
-    fun setThinking(enabled: Boolean) {
-        store.setThinking(enabled)
-        thinkingEnabled = enabled
-    }
-
     fun retry() {
-        if (store.isReady()) loadEngine() else stage = Stage.NeedsModel
+        if (store.isReady()) loadEngine(store.spec) else stage = Stage.NeedsModel
     }
 
-    fun deleteModel() {
-        closeEngine()
-        store.delete()
-        stage = Stage.NeedsModel
+    fun deleteModel(s: ModelSpec = store.spec) {
+        if (s.id == loadedId) closeEngine()
+        store.delete(s)
+        if (s.id == store.spec.id) stage = Stage.NeedsModel
     }
 
-    private fun loadEngine() {
+    private fun loadEngine(target: ModelSpec) {
         stage = Stage.Loading
         viewModelScope.launch {
             try {
-                val opened = withContext(Dispatchers.IO) { openEngine() }
+                val opened = withContext(Dispatchers.IO) { openEngine(target) }
                 engine = opened.first
                 backend = opened.second
+                loadedId = target.id
                 stage = Stage.Ready
             } catch (e: Throwable) {
-                // A truncated or corrupt bundle can only be fixed by refetching it.
-                store.delete()
                 backend = Backend.NONE
-                stage = Stage.Broken(e.message ?: e::class.java.simpleName)
+                loadedId = null
+                val detail = e.message ?: e::class.java.simpleName
+                // A bundle that is present but unreadable is almost always a bad
+                // download, and the only cure is fetching it again.
+                stage = Stage.Broken(
+                    summary = "${target.label} could not be loaded.",
+                    detail = detail,
+                    refetch = true
+                )
             }
         }
     }
 
     /**
-     * Try the GPU first — it's markedly faster on modern chips — but plenty of
-     * devices and drivers refuse the delegate, so fall back instead of dying.
+     * Prefers the GPU, which is markedly faster, but falls back to CPU when the
+     * delegate is refused — common enough across drivers to be worth handling.
+     *
+     * If both fail, the GPU error is reported: it is the one that explains why the
+     * fast path was unavailable, and the CPU failure is usually a consequence.
      */
-    private fun openEngine(): Pair<LlmInference, Backend> {
-        val path = store.fileFor().absolutePath
+    private fun openEngine(target: ModelSpec): Pair<LlmInference, Backend> {
+        val path = store.fileFor(target).absolutePath
 
         fun build(preferred: LlmInference.Backend) = LlmInference.createFromOptions(
             getApplication(),
             LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(path)
-                .setMaxTokens(store.spec.contextTokens)
+                .setMaxTokens(target.contextTokens)
                 .setPreferredBackend(preferred)
                 .build()
         )
 
+        val gpuFailure = try {
+            return Pair(build(LlmInference.Backend.GPU), Backend.GPU)
+        } catch (e: Throwable) {
+            e
+        }
+
         return try {
-            Pair(build(LlmInference.Backend.GPU), Backend.GPU)
-        } catch (_: Throwable) {
             Pair(build(LlmInference.Backend.CPU), Backend.CPU)
+        } catch (_: Throwable) {
+            throw gpuFailure
         }
     }
 
@@ -258,6 +321,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { engine?.close() }
         session = null
         engine = null
+        loadedId = null
         busy = false
         backend = Backend.NONE
     }
@@ -266,25 +330,42 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun send(text: String) {
         val prompt = text.trim()
-        val llm = engine
-        val convo = current
-        if (prompt.isEmpty() || busy || llm == null || convo == null || stage !is Stage.Ready) return
+        val convo = current ?: return
+        if (prompt.isEmpty() || busy) return
 
         val isFirst = convo.messages.isEmpty()
         replace(convo.id) {
             it.copy(
                 title = if (isFirst) Conversation.titleFrom(prompt) else it.title,
+                // Pin the model on the first exchange so the chat keeps one voice.
+                modelId = it.modelId ?: store.spec.id,
                 messages = it.messages + Message(prompt, fromUser = true),
                 updatedAt = System.currentTimeMillis()
             )
         }
         bumpToTop(convo.id)
         persist()
+        generate(convo.id)
+    }
+
+    /** Drops the last reply and asks again from the same point. */
+    fun regenerate() {
+        val convo = current ?: return
+        if (busy) return
+        val trimmed = convo.messages.dropLastWhile { !it.fromUser }
+        if (trimmed.isEmpty()) return
+        replace(convo.id) { it.copy(messages = trimmed) }
+        persist()
+        generate(convo.id)
+    }
+
+    private fun generate(conversationId: String) {
+        val llm = engine
+        if (llm == null || stage !is Stage.Ready) return
 
         busy = true
         streaming = ""
         turnStartedAt = System.currentTimeMillis()
-        val conversationId = convo.id
         val turn = ++generation
 
         viewModelScope.launch {
@@ -313,7 +394,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Keeps whatever the user has already seen and walks away from the rest.
+     * Keeps whatever the reader has already seen and walks away from the rest.
      *
      * The native call can't be interrupted safely mid-flight, so rather than tear
      * the session down underneath it we stop listening: late tokens arrive with a
@@ -329,8 +410,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         streaming = ""
         busy = false
 
-        // Prefer what the reader was actually shown; fall back to the reasoning
-        // only when it was stopped before the answer began.
         val kept = split.answer.trim().ifEmpty { split.reasoning.trim() }
         if (kept.isNotEmpty()) {
             replace(conversationId) {
@@ -402,20 +481,19 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * Renders the transcript in whichever format the loaded family expects.
      *
-     * The KV cache is fixed at [MAX_TOKENS] when the model is converted, so a long
-     * transcript has to be trimmed or generation fails outright. Keep the newest
-     * messages that fit and report how many were dropped, rather than silently
-     * forgetting them.
+     * The KV cache is fixed when a model is converted, so a long transcript has to
+     * be trimmed or generation fails outright. Keep the newest messages that fit and
+     * report how many were dropped, rather than silently forgetting them.
      */
     private fun buildPrompt(conversationId: String): String {
         val convo = conversations.firstOrNull { it.id == conversationId } ?: return ""
-        val system = "You are maik, a helpful assistant running entirely on the user " +
-            "device. Answer clearly and concisely."
+        val model = modelFor(convo)
+        val system = systemPrompt
 
         val history = convo.messages.filterNot { it.isError }
-        // Leave a generous slice for the reply — a reasoning model spends a lot of
+        // Leave a generous slice for the reply — a reasoning model spends much of
         // the window thinking before the first user-visible word appears.
-        val inputBudget = (spec.contextTokens * 0.55).toInt()
+        val inputBudget = (model.contextTokens * 0.55).toInt()
         var budget = inputBudget - estimateTokens(system) - 8
         val kept = ArrayDeque<Message>()
 
@@ -427,21 +505,21 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
         dropped = history.size - kept.size
 
-        return when (spec.template) {
-            Template.CHATML -> buildChatMl(system, kept.toList())
+        return when (model.template) {
+            Template.CHATML -> buildChatMl(system, kept.toList(), model)
             Template.GEMMA -> buildGemma(system, kept.toList())
         }
     }
 
-    private fun buildChatMl(system: String, kept: List<Message>) = buildString {
+    private fun buildChatMl(system: String, kept: List<Message>, model: ModelSpec) = buildString {
         append("<|im_start|>system\n").append(system).append("<|im_end|>\n")
         kept.forEachIndexed { index, m ->
             append("<|im_start|>")
             append(if (m.fromUser) "user" else "assistant")
             append("\n")
             append(m.text)
-            // Qwen reads /no_think as a per-turn switch; only the last one counts.
-            if (m.fromUser && index == kept.lastIndex && spec.reasoning && !thinkingEnabled) {
+            // Some families read /no_think as a per-turn switch; only the last counts.
+            if (m.fromUser && index == kept.lastIndex && model.reasoning && !thinkingEnabled) {
                 append(" /no_think")
             }
             append("<|im_end|>\n")
