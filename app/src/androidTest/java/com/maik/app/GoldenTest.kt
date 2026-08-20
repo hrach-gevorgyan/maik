@@ -23,9 +23,8 @@ import java.io.File
  * real runtime. So this downloads an actual model onto an actual Android image,
  * loads it, and makes it produce a sentence.
  *
- * It uses a 159 MB fixture rather than one of the models the app offers, so running
- * it on every push stays affordable. The format, the loader and the generation path
- * are identical — only the weights are smaller.
+ * It runs against the default model, downloaded onto the emulator and cached
+ * between runs, so what is verified is what ships.
  */
 @RunWith(AndroidJUnit4::class)
 class GoldenTest {
@@ -33,7 +32,9 @@ class GoldenTest {
     companion object {
         private lateinit var context: Context
         private lateinit var store: ModelStore
-        private val spec = Models.GOLDEN_TEST_MODEL
+        // The model people actually get. Slower to fetch than a toy fixture, but
+        // a test that passes on something nobody installs proves nothing.
+        private val spec = Models.DEFAULT
         private var modelFile: File? = null
 
         @BeforeClass

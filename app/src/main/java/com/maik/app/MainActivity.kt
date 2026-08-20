@@ -46,9 +46,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -99,8 +97,10 @@ private fun Root(vm: ChatViewModel = viewModel()) {
                         Screen.List -> ConversationListScreen(vm)
                         Screen.Settings -> SettingsScreen(vm)
                         Screen.Setup -> SetupScreen(vm)
-                        Screen.Chat -> when (vm.stage) {
-                            is Stage.Ready -> ChatScreen(vm)
+                        Screen.Chat -> when {
+                            // A finished download says so before dropping you in.
+                            vm.justInstalled -> SetupScreen(vm)
+                            vm.stage is Stage.Ready -> ChatScreen(vm)
                             else -> SetupScreen(vm)
                         }
                     }

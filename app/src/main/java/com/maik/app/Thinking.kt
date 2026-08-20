@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -26,7 +25,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
@@ -65,10 +63,7 @@ fun ThinkingCard(reasoning: String, startedAt: Long) {
     Column(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .border(1.dp, scheme.outline, RoundedCornerShape(18.dp))
-            .background(scheme.surface)
-            .padding(16.dp)
+            .padding(vertical = 2.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             PulsingDot()
@@ -76,8 +71,8 @@ fun ThinkingCard(reasoning: String, startedAt: Long) {
             Shimmer {
                 Text(
                     VERBS[verb],
-                    style = MaterialTheme.typography.titleMedium,
-                    color = scheme.onSurface
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.55f)
                 )
             }
             Spacer(Modifier.weight(1f))
@@ -90,17 +85,9 @@ fun ThinkingCard(reasoning: String, startedAt: Long) {
             }
         }
 
-        if (reasoning.isNotBlank()) {
-            Spacer(Modifier.height(12.dp))
-            // Only the tail: this is a texture of work happening, not a document.
-            Text(
-                reasoning.takeLast(220),
-                style = MaterialTheme.typography.bodyMedium,
-                color = scheme.onSurfaceVariant.copy(alpha = 0.32f),
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+        // The reasoning itself is deliberately not shown while it streams. Reading
+        // text that is then replaced by a different answer is worse than waiting:
+        // it is available afterwards, folded away, for anyone who wants it.
     }
 }
 

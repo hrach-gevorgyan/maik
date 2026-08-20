@@ -54,47 +54,38 @@ object Models {
         reasoning = true
     )
 
-    val PHI_4_MINI = ModelSpec(
-        id = "phi-4-mini-q8",
-        label = "Phi-4-mini",
-        params = "3.8B · int8",
-        blurb = "The most capable that will run here. A big download and a slower reply.",
-        url = "https://huggingface.co/litert-community/Phi-4-mini-instruct/" +
-            "resolve/main/Phi-4-mini-instruct_multi-prefill-seq_q8_ekv4096.task",
-        approxBytes = 3_910_050_199L,
+    /**
+     * A backup in the same size class, for when DeepSeek misbehaves. It does not
+     * reason first, so its first word arrives sooner.
+     */
+    val QWEN_1_5B = ModelSpec(
+        id = "qwen2.5-1.5b-instruct-q8",
+        label = "Qwen2.5 1.5B",
+        params = "1.5B · int8",
+        blurb = "Answers straight away instead of thinking first. A steady fallback.",
+        url = "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/" +
+            "resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.task",
+        approxBytes = 1_598_556_720L,
         contextTokens = 4096
     )
 
-    val TINYLLAMA = ModelSpec(
-        id = "tinyllama-1.1b-q8",
-        label = "TinyLlama 1.1B",
-        params = "1.1B · int8",
-        blurb = "Older and plainer, but quick and undemanding.",
-        url = "https://huggingface.co/litert-community/TinyLlama-1.1B-Chat-v1.0/" +
-            "resolve/main/TinyLlama-1.1B-Chat-v1.0_multi-prefill-seq_q8_ekv1280.task",
-        approxBytes = 1_148_331_545L,
-        contextTokens = 1280
-    )
-
-    val ALL = listOf(DEEPSEEK_1_5B, TINYLLAMA, PHI_4_MINI)
+    /**
+     * Two models, both around 1.5B, because that is the size a phone actually runs.
+     *
+     * TinyLlama returned empty replies on device. Phi-4-mini at 3.8B ran the phone
+     * hot enough to throttle, took over a minute per answer and then locked up.
+     * Nothing that size gets offered again — see [MAX_SENSIBLE_BYTES].
+     */
+    val ALL = listOf(DEEPSEEK_1_5B, QWEN_1_5B)
 
     val DEFAULT = DEEPSEEK_1_5B
 
     /**
-     * Not offered in the app: a 159 MB bundle used by the instrumented golden test,
-     * which downloads it and runs a real generation on an emulator. Small enough to
-     * make that check affordable on every push.
+     * A hard ceiling on what may be offered. Phi-4-mini at 3.7 GB was unusable on
+     * real hardware; anything approaching that is a bad recommendation, not a
+     * powerful one.
      */
-    val GOLDEN_TEST_MODEL = ModelSpec(
-        id = "smollm-135m-q8",
-        label = "SmolLM 135M",
-        params = "135M · int8",
-        blurb = "Test fixture.",
-        url = "https://huggingface.co/litert-community/SmolLM-135M-Instruct/" +
-            "resolve/main/SmolLM-135M-Instruct_multi-prefill-seq_q8_ekv1280.task",
-        approxBytes = 166_754_726L,
-        contextTokens = 1280
-    )
+    const val MAX_SENSIBLE_BYTES = 2_100_000_000L
 
     fun byId(id: String?): ModelSpec = ALL.firstOrNull { it.id == id } ?: DEFAULT
 }

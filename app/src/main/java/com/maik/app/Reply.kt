@@ -1,16 +1,20 @@
 package com.maik.app
 
+import java.nio.ByteBuffer
+import java.nio.charset.CodingErrorAction
+
 /**
  * Trims a raw generation down to the part meant for the reader.
  *
- * Small models do not reliably stop at their own end-of-turn token. They emit it as
- * ordinary text and carry on, inventing both halves of a conversation until the
- * token budget runs out — which is what produced the rambling, debris-laden replies
- * in 1.4.x. The runtime does not cut this for us, so the app has to.
+ * Two things go wrong with these models, both observed on a device:
  *
- * Every marker below is a real control token from a shipping model's template:
- * ChatML for SmolLM, `<|user|>`/`<|end|>` for Phi-4-mini, `</s>` for TinyLlama, and
- * the full-width bar forms for DeepSeek-R1.
+ * 1. They do not stop. A model answers, emits its own end-of-turn token as ordinary
+ *    text, and carries on inventing both halves of a conversation until the budget
+ *    runs out. The runtime does not cut this, so the app does.
+ *
+ * 2. Byte-level tokenizer encoding leaks into the decoded text. An emoji arrives as
+ *    a run of Latin characters — `ðŁĨ` is the bytes `F0 9F 86`, a 4-byte emoji cut
+ *    one byte short.
  */
 object Reply {
 
@@ -33,15 +37,23 @@ object Reply {
     )
 
     /**
-     * Byte-level BPE artefacts, mapped back to what they stand for rather than
-     * deleted: 'Ġ' is how such a tokenizer writes a space, 'Ċ' a newline. Removing
-     * them outright would weld neighbouring words together.
+     * The GPT-2 byte encoder: every raw byte mapped to one printable character.
+     * Bytes 33–126, 161–172 and 174–255 stand for themselves, so ASCII passes
+     * through untouched — which is what makes reversing it safe on ordinary text.
      */
-    private val DEBRIS = mapOf(
-        "Ġ" to " ",
-        "Ċ" to "\n",
-        "Ā" to ""
-    )
+    private val byteOf: Map<Char, Int> by lazy {
+        val direct = ((33..126) + (161..172) + (174..255)).toSet()
+        val map = HashMap<Char, Int>(256)
+        direct.forEach { map[it.toChar()] = it }
+        var spare = 0
+        for (b in 0..255) {
+            if (b !in direct) {
+                map[(256 + spare).toChar()] = b
+                spare++
+            }
+        }
+        map
+    }
 
     fun clean(raw: String): String {
         var text = raw
@@ -52,13 +64,58 @@ object Reply {
         }.minOrNull()
         if (cut != null) text = text.substring(0, cut)
 
-        DEBRIS.forEach { (artefact, meaning) -> text = text.replace(artefact, meaning) }
+        text = repairBytes(text)
 
-        // A literal backslash-n is how these templates spell a newline; if one
-        // survives at the tail it is the start of a cut-off marker, not content.
+        // A literal backslash-n is how these templates spell a newline; one left at
+        // the tail is the start of a marker we cut, not content.
         text = text.trimEnd().removeSuffix("\\n").trimEnd()
 
         return text.trim()
+    }
+
+    /**
+     * Rebuilds text that arrived in byte-level encoding.
+     *
+     * Only runs of non-ASCII characters are touched, and only when they decode to
+     * valid UTF-8 — so genuinely accented text is left alone, and a truncated emoji
+     * is dropped rather than shown as gibberish.
+     */
+    fun repairBytes(text: String): String {
+        if (text.all { it.code < 128 }) return text
+
+        val out = StringBuilder(text.length)
+        var i = 0
+        while (i < text.length) {
+            val ch = text[i]
+            if (ch.code < 128 || !byteOf.containsKey(ch)) {
+                out.append(ch)
+                i++
+                continue
+            }
+
+            var end = i
+            while (end < text.length && text[end].code >= 128 && byteOf.containsKey(text[end])) {
+                end++
+            }
+
+            val bytes = ByteArray(end - i) { byteOf.getValue(text[i + it]).toByte() }
+            decodeUtf8(bytes)?.let(out::append)
+            // A run that is not valid UTF-8 is a truncated character. Drop it: half
+            // an emoji is noise, and showing it as Latin letters is worse.
+            i = end
+        }
+        return out.toString()
+    }
+
+    /** Strict UTF-8 decode, or null when the bytes are not a complete sequence. */
+    private fun decodeUtf8(bytes: ByteArray): String? = try {
+        Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+            .toString()
+    } catch (_: Exception) {
+        null
     }
 
     /**

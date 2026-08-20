@@ -33,9 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -374,11 +372,30 @@ fun SetupScreen(vm: ChatViewModel) {
                 BrokenState(vm, s, onRefetch = ::begin)
             }
 
-            is Stage.Ready -> Unit
+            is Stage.Ready -> RisesIn(key = "ready") {
+                Column {
+                    Text(
+                        "${spec.label} is ready",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = scheme.onBackground
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "It lives on this phone now. You can turn the network off " +
+                            "and it will keep answering.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = scheme.onSurfaceVariant.copy(alpha = 0.55f)
+                    )
+                    Spacer(Modifier.height(26.dp))
+                    BigButton("Start chatting", onClick = vm::acknowledgeInstall)
+                }
+            }
         }
 
-        Spacer(Modifier.height(24.dp))
-        QuietAction("Back", vm::openList)
+        if (vm.stage !is Stage.Ready) {
+            Spacer(Modifier.height(24.dp))
+            QuietAction("Back", vm::openList)
+        }
     }
 
     if (explainNotifications) {

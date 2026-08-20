@@ -14,10 +14,10 @@ import androidx.lifecycle.viewModelScope
 import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
 import com.google.mediapipe.tasks.genai.llminference.ProgressListener
+import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.UUID
 
 /** What the engine is doing, independent of which screen you're looking at. */
 sealed interface Stage {
@@ -90,6 +90,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
      * leave the row sitting there.
      */
     var storageVersion by mutableStateOf(0)
+        private set
+
+    /** Set when a download completes, so the setup screen can confirm it. */
+    var justInstalled by mutableStateOf(false)
         private set
     var thinkingEnabled by mutableStateOf(true)
         private set
@@ -171,6 +175,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     /** Brings the download into view, e.g. when returning from its notification. */
     fun showDownload() {
         screen = Screen.Setup
+    }
+
+    /** Dismisses the "ready" confirmation and gets on with it. */
+    fun acknowledgeInstall() {
+        justInstalled = false
+        if (currentId == null) newChat() else screen = Screen.Chat
     }
 
     fun openSettings() {
@@ -347,6 +357,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
                     is Download.Done -> {
                         storageVersion++
+                        justInstalled = true
                         if (stage !is Stage.Ready) loadEngine(target)
                     }
                     null -> Unit

@@ -20,6 +20,10 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+
+      - name: Verify every offered model is actually loadable
+        run: python tools/verify_models.py
+
       - name: Test and assemble
         run: ./gradlew test assembleDebug --no-daemon
 

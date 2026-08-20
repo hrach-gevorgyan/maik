@@ -87,24 +87,31 @@ class ModelCatalogTest {
         assertEquals(Models.DEFAULT, Models.byId(null))
         // Chats pinned to models dropped from the catalogue must still open.
         assertEquals(Models.DEFAULT, Models.byId("qwen2.5-1.5b-instruct-q8-4k"))
-        assertEquals(Models.DEFAULT, Models.byId("smollm-135m-q8"))
-        assertEquals(Models.PHI_4_MINI, Models.byId(Models.PHI_4_MINI.id))
+        assertEquals(Models.QWEN_1_5B, Models.byId(Models.QWEN_1_5B.id))
+        // Models pulled for being unusable must not resurrect via a pinned chat.
+        assertEquals(Models.DEFAULT, Models.byId("phi-4-mini-q8"))
+        assertEquals(Models.DEFAULT, Models.byId("tinyllama-1.1b-q8"))
+    }
+
+    @Test
+    fun `nothing is offered that a phone cannot actually run`() {
+        // Phi-4-mini at 3.7 GB throttled the device, took over a minute per answer
+        // and then locked up. Size is not a feature if the result is unusable.
+        Models.ALL.forEach { model ->
+            assertTrue(
+                "${model.label} is too big to be a sensible suggestion",
+                model.approxBytes <= Models.MAX_SENSIBLE_BYTES
+            )
+        }
+    }
+
+    @Test
+    fun `there is more than one model, so a bad one is not a dead end`() {
+        assertTrue(Models.ALL.size >= 2)
     }
 
     @Test
     fun `the default is one of the offered models`() {
         assertTrue(Models.DEFAULT in Models.ALL)
-    }
-
-    @Test
-    fun `the golden test fixture obeys the same rules as the catalogue`() {
-        // It is not offered in the app, but the instrumented test loads it for
-        // real — so a broken fixture would silently disable that whole check.
-        val fixture = Models.GOLDEN_TEST_MODEL
-        assertTrue(fixture.url, fixture.url.endsWith(".task"))
-        assertTrue(fixture.url, !fixture.url.contains("-gpu.") && !fixture.url.contains("_gpu."))
-        assertTrue(fixture.url, fixture.url.startsWith("https://huggingface.co/litert-community/"))
-        assertEquals(1280, fixture.contextTokens)
-        assertTrue(fixture.id !in Models.ALL.map { it.id })
     }
 }
