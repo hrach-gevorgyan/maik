@@ -7,6 +7,26 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 1.5.1 — 21 August 2026
+
+**Replies no longer ramble into invented conversations.**
+
+The models never stop when they should. They answer, emit their own end-of-turn
+token as ordinary text, and then keep going — writing both halves of a conversation
+that never happened until the token budget runs out. That is the trailing garbage in
+1.5.0 and everything before it.
+
+The runtime does not cut this off, so maik does: generation now stops the moment a
+turn marker appears, and anything past it is discarded. Byte-level tokeniser
+artefacts are translated back into the characters they stand for rather than left in
+the text.
+
+This was found by running the golden test on a real emulator rather than guessing,
+and the test now asserts what a reader actually sees instead of what the engine
+happens to emit.
+
+---
+
 ## 1.5.0 — 21 August 2026
 
 **Replies were nonsense because maik was formatting every prompt twice.**

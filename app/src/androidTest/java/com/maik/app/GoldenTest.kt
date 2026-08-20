@@ -107,6 +107,21 @@ class GoldenTest {
     }
 
     @Test
+    fun theModelRamblesPastItsStopTokenAndTheAppTrimsIt() {
+        // Documents the behaviour the trimming exists for, against real output:
+        // the runtime does not honour the bundle's stop token, so the model emits
+        // it as text and invents a conversation until the budget runs out.
+        val raw = rawAsk("Say hello.")
+        val cleaned = Reply.clean(raw)
+        assertTrue("nothing came back at all", raw.isNotBlank())
+        assertTrue("the trimmed reply is empty", cleaned.isNotBlank())
+        assertTrue(
+            "trimming did not shorten a rambling reply",
+            cleaned.length <= raw.length
+        )
+    }
+
+    @Test
     fun promptsAreSentAsPlainTextWithNoTemplateOfOurOwn() {
         // The bundle carries its own template and the engine applies it. Anything we
         // add on top is what broke 1.1.0 through 1.4.1.
@@ -114,8 +129,15 @@ class GoldenTest {
         assertTrue("plain text produced no reply", reply.isNotBlank())
     }
 
+    /**
+     * What the reader would actually see: the engine's output put through the same
+     * trimming the app applies. Asserting on the raw generation would only restate
+     * that small models ramble past their stop token, which they always do.
+     */
+    private fun ask(question: String): String = Reply.clean(rawAsk(question))
+
     /** One question, one fresh session, raw text — exactly how the app asks. */
-    private fun ask(question: String): String = engine().use { llm ->
+    private fun rawAsk(question: String): String = engine().use { llm ->
         val options = LlmInferenceSession.LlmInferenceSessionOptions.builder()
             .setTemperature(0.1f)
             .setTopK(10)

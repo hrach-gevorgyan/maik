@@ -583,14 +583,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         streaming = ""
         busy = false
 
-        val kept = split.answer.trim().ifEmpty { split.reasoning.trim() }
+        val kept = Reply.clean(split.answer).ifEmpty { Reply.clean(split.reasoning) }
         if (kept.isNotEmpty()) {
             replace(conversationId) {
                 it.copy(
                     messages = it.messages + Message(
                         text = kept,
                         fromUser = false,
-                        reasoning = split.reasoning.ifEmpty { null },
+                        reasoning = Reply.clean(split.reasoning).ifEmpty { null },
                         thoughtSeconds = seconds
                     ),
                     updatedAt = System.currentTimeMillis()
@@ -609,13 +609,19 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             streaming += partial.orEmpty()
-            if (done) {
+
+            // Small models emit their end-of-turn token as text and keep going,
+            // inventing both sides of a conversation. Stop listening at the first
+            // marker rather than showing the reader that, or paying to generate it.
+            val finished = done || Reply.isComplete(streaming)
+            if (finished) {
                 val split = Split.of(streaming)
+                if (!done) generation++      // abandon the rest of this generation
                 finish(
                     conversationId = conversationId,
-                    text = split.answer.trim().ifEmpty { "…" },
+                    text = Reply.clean(split.answer).ifEmpty { "…" },
                     isError = false,
-                    reasoning = split.reasoning.ifEmpty { null }
+                    reasoning = Reply.clean(split.reasoning).ifEmpty { null }
                 )
             }
         }

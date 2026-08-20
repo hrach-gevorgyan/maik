@@ -177,7 +177,7 @@ private fun ChatScreen(vm: ChatViewModel) {
                     when {
                         live.stillThinking -> ThinkingCard(live.reasoning, vm.turnStartedAt)
                         live.answer.isNotEmpty() ->
-                            Bubble(Message(live.answer, fromUser = false))
+                            Bubble(Message(Reply.clean(live.answer), fromUser = false))
 
                         else -> TypingDots()
                     }
