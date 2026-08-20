@@ -36,7 +36,7 @@ jobs:
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "Building $VERSION (versionCode $CODE)"
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
@@ -91,10 +91,16 @@ jobs:
             exit 1
           fi
 
-          # A signed APK always carries a signature block in META-INF. Publishing
-          # one without it means handing users a file their phone will reject.
-          if ! unzip -l "$SRC" | grep -qE 'META-INF/.*[.](RSA|DSA|EC)'; then
-            echo "::error::$SRC is unsigned and could not be installed. Refusing to publish."
+          # Verify with apksigner, not by looking for META-INF/*.RSA: that is v1
+          # JAR signing, which AGP omits entirely when minSdk >= 24. A v2/v3-only
+          # APK is perfectly installable and has nothing in META-INF.
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          if [ -z "$APKSIGNER" ]; then
+            echo "::error::apksigner not found; cannot confirm the APK is installable."
+            exit 1
+          fi
+          if ! "$APKSIGNER" verify --print-certs "$SRC"; then
+            echo "::error::$SRC is unsigned and no phone would install it. Refusing to publish."
             exit 1
           fi
 

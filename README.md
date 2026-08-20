@@ -74,7 +74,8 @@ revoke from a dashboard.
 <tr><td width="180"><b>Conversations</b></td><td>As many as you like, titled from your first message, searchable by title or content. Long-press to rename or delete.</td></tr>
 <tr><td><b>Streaming</b></td><td>Replies arrive word by word. Hit stop mid-sentence and it keeps what was already written.</td></tr>
 <tr><td><b>Copy</b></td><td>Long-press any message.</td></tr>
-<tr><td><b>Two models</b></td><td>Qwen2.5 1.5B by default, or a 0.5B build a third the size. Switch anytime; both stay downloaded.</td></tr>
+<tr><td><b>Four models</b></td><td>Gemma 4 E2B by default, plus two Liquid AI builds and an older fallback. Switch anytime; each stays downloaded.</td></tr>
+<tr><td><b>Visible thinking</b></td><td>When a model reasons before answering, you watch it happen — then the reasoning folds away into a line you can expand.</td></tr>
 <tr><td><b>Honest downloads</b></td><td>Background service with a progress notification, survives screen lock, warns before spending your mobile data.</td></tr>
 <tr><td><b>GPU</b></td><td>Used when the driver allows it, CPU when it doesn't. Settings tells you which you got.</td></tr>
 </table>
@@ -90,12 +91,26 @@ that the radio is never touched again. `INTERNET` exists for that one download a
 nothing else.
 
 <table>
-<tr><td><b>Default model</b></td><td>Qwen2.5 1.5B Instruct · int8 · Apache 2.0</td></tr>
-<tr><td><b>Download</b></td><td>~1.5 GB, once, no token, no license gate</td></tr>
-<tr><td><b>Runtime</b></td><td><code>com.google.mediapipe:tasks-genai</code></td></tr>
-<tr><td><b>Context</b></td><td>1280 tokens, fixed inside the model file</td></tr>
-<tr><td><b>Runs on</b></td><td>Any Android 8.0+ phone. Yes, including your S24 Ultra.</td></tr>
+<tr><td><b>Default model</b></td><td>Gemma 4 E2B · Apache 2.0 · ~1.9 GB</td></tr>
+<tr><td><b>Runtime</b></td><td><code>com.google.mediapipe:tasks-genai</code>, LiteRT-LM bundles</td></tr>
+<tr><td><b>Context</b></td><td>4096 tokens</td></tr>
+<tr><td><b>Runs on</b></td><td>Any ARM64 Android 8.0+ phone. Yes, including your S24 Ultra.</td></tr>
 </table>
+
+### The models on offer
+
+Every one of these downloads with no account, no token and no license gate — which
+rules out most of the obvious names.
+
+| Model | Params | Download | License | Character |
+|---|---|---|---|---|
+| **Gemma 4 E2B** *(default)* | ~2B effective | 1.9 GB | Apache 2.0 | The sharpest. Google's newest small model |
+| **LFM2.5 2.6B** | 2.6B | 1.6 GB | LFM open | More depth, still built for phones |
+| **LFM2.5 1.2B** | 1.2B | 736 MB | LFM open | The fastest, and the smallest download |
+| Qwen2.5 1.5B | 1.5B | 1.5 GB | Apache 2.0 | Fallback in the older `.task` format |
+
+Switching is two taps in Settings, and each model stays on disk once fetched, so
+you can compare them on your own phone rather than taking anyone's word for it.
 
 <details>
 <summary><b>Why not Gemma 3 1B, which is better at this size?</b></summary>
@@ -196,6 +211,7 @@ app/src/main/java/com/maik/app/
 ├── MainActivity.kt     nav, chat screen, shared components, hand-drawn glyphs
 ├── Screens.kt          conversation list, settings, first-run setup
 ├── ChatViewModel.kt    stage machine, model lifecycle, streaming, context budget
+├── Thinking.kt         the reasoning indicator and its collapsible trace
 ├── ModelStore.kt       model catalog + a download that can't half-succeed
 ├── DownloadService.kt  foreground service so downloads survive the lock screen
 ├── Conversations.kt    chat model, JSON persistence, relative timestamps
@@ -204,10 +220,14 @@ app/src/main/java/com/maik/app/
 
 Four things worth knowing before you fork it:
 
-**Context is budgeted, not truncated by luck.** The KV cache is fixed at 1280 tokens
-when the model is converted, so `buildPrompt` walks backwards through the transcript
-keeping only what fits and reports how many messages it dropped. The chat shows that
-count rather than silently forgetting.
+**Context is budgeted, not truncated by luck.** The KV cache is fixed when the model
+is converted, so `buildPrompt` walks backwards through the transcript keeping only
+what fits and reports how many messages it dropped. The chat shows that count rather
+than silently forgetting.
+
+**Prompt formats are per family.** The bundles ship tokenizers, not chat templates,
+so ChatML and Gemma's `<start_of_turn>` format are both built by hand — and Gemma
+has no system role, so the instructions ride along with the first user turn.
 
 **Stop doesn't kill the session.** The native call can't be interrupted safely
 mid-flight, so each turn carries a generation number; stopping bumps it and late
@@ -225,7 +245,7 @@ your chats, not the app — it fails to an empty list rather than a crash loop.
 
 - **The model is small.** It follows instructions and holds a short thread, but it
   will state wrong things confidently.
-- **Long chats forget.** 1280 tokens is roughly 15 exchanges.
+- **Long chats forget.** 4096 tokens is roughly 45 exchanges.
 - **No download resume.** Cancel at 1.4 GB and you start over.
 - **Plain text only.** Markdown renders as its own asterisks.
 - **No tests.**
@@ -233,7 +253,8 @@ your chats, not the app — it fails to an empty list rather than a crash loop.
 ## Requirements
 
 - Android **8.0 (API 26)** or newer
-- ~2 GB free storage for the default model
+- ~2.5 GB free storage for the default model
+- An **ARM64** device (everything since roughly 2016)
 - Android Studio Ladybug+ / JDK 17+
 - **No special hardware. No allowlist. No AICore.**
 
@@ -244,7 +265,7 @@ your chats, not the app — it fails to an empty list rather than a crash loop.
 <sub>
 
 Type: [Hanken Grotesk](https://github.com/hanken-design/HK-Grotesk) · Hanken Design Co. · SIL OFL 1.1<br>
-Model: [Qwen2.5-1.5B-Instruct](https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct) · Apache 2.0 · LiteRT conversion by litert-community
+Models: [Gemma 4](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm) · [LFM2.5](https://huggingface.co/litert-community/LFM2.5-1.2B-Instruct) · [Qwen2.5](https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct) · converted to LiteRT by litert-community
 
 **maik.**
 

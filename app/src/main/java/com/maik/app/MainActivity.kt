@@ -134,11 +134,33 @@ private fun ChatScreen(vm: ChatViewModel) {
             if (vm.dropped > 0) {
                 item { ContextNotice(vm.dropped) }
             }
-            items(convo.messages) { msg -> Bubble(msg) }
+            items(convo.messages) { msg ->
+                Column {
+                    Bubble(msg)
+                    if (!msg.reasoning.isNullOrBlank()) {
+                        ReasoningTrace(msg.reasoning, msg.thoughtSeconds)
+                    }
+                }
+            }
             if (vm.busy) {
                 item {
-                    if (vm.streaming.isEmpty()) TypingDots()
-                    else Bubble(Message(vm.streaming, fromUser = false))
+                    val live = vm.live
+                    when {
+                        // Still inside the <think> block, or nothing back yet.
+                        live.stillThinking ->
+                            ThinkingCard(live.reasoning, vm.turnStartedAt)
+
+                        live.answer.isEmpty() && vm.streaming.isEmpty() ->
+                            if (vm.spec.reasoning && vm.thinkingEnabled) {
+                                ThinkingCard("", vm.turnStartedAt)
+                            } else {
+                                TypingDots()
+                            }
+
+                        live.answer.isEmpty() -> TypingDots()
+
+                        else -> Bubble(Message(live.answer, fromUser = false))
+                    }
                 }
             }
         }

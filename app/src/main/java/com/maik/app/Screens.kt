@@ -15,6 +15,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
@@ -261,6 +263,22 @@ fun SettingsScreen(vm: ChatViewModel) {
             }
 
             item {
+                if (vm.spec.reasoning) {
+                    Spacer(Modifier.height(18.dp))
+                    SectionLabel("REASONING")
+                    Spacer(Modifier.height(10.dp))
+                    ToggleRow(
+                        label = if (vm.thinkingEnabled) "Think before answering"
+                        else "Answer straight away",
+                        detail = if (vm.thinkingEnabled)
+                            "Slower to start, better on anything that needs working out."
+                        else
+                            "Faster, shallower. Good for quick questions.",
+                        checked = vm.thinkingEnabled,
+                        onChange = vm::setThinking
+                    )
+                }
+
                 Spacer(Modifier.height(18.dp))
                 SectionLabel("STORAGE")
                 Spacer(Modifier.height(10.dp))
@@ -330,6 +348,51 @@ fun SettingsScreen(vm: ChatViewModel) {
 }
 
 @Composable
+private fun ToggleRow(
+    label: String,
+    detail: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .border(1.dp, scheme.outline, RoundedCornerShape(18.dp))
+            .clickable { onChange(!checked) }
+            .padding(18.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                label,
+                style = MaterialTheme.typography.titleMedium,
+                color = scheme.onSurface
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurfaceVariant.copy(alpha = 0.45f)
+            )
+        }
+        Spacer(Modifier.width(14.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = scheme.onPrimary,
+                checkedTrackColor = scheme.primary,
+                uncheckedThumbColor = scheme.onSurfaceVariant.copy(alpha = 0.5f),
+                uncheckedTrackColor = scheme.surface,
+                uncheckedBorderColor = scheme.outline
+            )
+        )
+    }
+}
+
+@Composable
 private fun ModelCard(
     model: ModelSpec,
     selected: Boolean,
@@ -371,6 +434,14 @@ private fun ModelCard(
                 )
             }
         }
+        Spacer(Modifier.height(3.dp))
+        Row {
+            Text(
+                "${model.params} · ${model.contextTokens / 1024}K context",
+                style = MaterialTheme.typography.labelSmall,
+                color = scheme.onSurfaceVariant.copy(alpha = 0.28f)
+            )
+        }
         Spacer(Modifier.height(6.dp))
         Text(
             model.blurb,
@@ -405,11 +476,17 @@ fun SetupScreen(vm: ChatViewModel) {
                     style = MaterialTheme.typography.bodyLarge,
                     color = scheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
-                Spacer(Modifier.height(26.dp))
-                SpecRow("MODEL", spec.label)
-                SpecRow("SIZE", "${spec.approxMb} MB, one time")
-                SpecRow("AFTER", "Fully offline")
-                Spacer(Modifier.height(30.dp))
+                Spacer(Modifier.height(24.dp))
+                Models.ALL.forEach { model ->
+                    ModelCard(
+                        model = model,
+                        selected = model.id == spec.id,
+                        downloaded = model.id in vm.installedModels(),
+                        onClick = { vm.selectModel(model) }
+                    )
+                    Spacer(Modifier.height(10.dp))
+                }
+                Spacer(Modifier.height(18.dp))
                 BigButton("Download model") {
                     if (vm.onMeteredNetwork()) warnMetered = true else vm.startDownload()
                 }

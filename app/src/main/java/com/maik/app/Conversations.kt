@@ -11,8 +11,44 @@ data class Message(
     val text: String,
     val fromUser: Boolean,
     val isError: Boolean = false,
-    val at: Long = System.currentTimeMillis()
+    val at: Long = System.currentTimeMillis(),
+    /** What a reasoning model worked through before answering, if anything. */
+    val reasoning: String? = null,
+    /** Seconds spent thinking, shown next to the reasoning toggle. */
+    val thoughtSeconds: Int = 0
 )
+
+/**
+ * Splits a reasoning model's raw output into the part it was working through and
+ * the part meant for the reader.
+ *
+ * Qwen3 wraps its reasoning in `<think>` … `</think>`. The opening tag is sometimes
+ * implied rather than emitted, so an unterminated stream is treated as still
+ * thinking only when a tag actually opened it.
+ */
+data class Split(val reasoning: String, val answer: String, val stillThinking: Boolean) {
+    companion object {
+        private const val OPEN = "<think>"
+        private const val CLOSE = "</think>"
+
+        fun of(raw: String): Split {
+            val close = raw.indexOf(CLOSE)
+            if (close >= 0) {
+                val start = raw.indexOf(OPEN).let { if (it >= 0) it + OPEN.length else 0 }
+                return Split(
+                    reasoning = raw.substring(start, close).trim(),
+                    answer = raw.substring(close + CLOSE.length).trimStart(),
+                    stillThinking = false
+                )
+            }
+            val open = raw.indexOf(OPEN)
+            if (open >= 0) {
+                return Split(raw.substring(open + OPEN.length).trim(), "", stillThinking = true)
+            }
+            return Split("", raw, stillThinking = false)
+        }
+    }
+}
 
 @Serializable
 data class Conversation(

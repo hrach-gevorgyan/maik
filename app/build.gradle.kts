@@ -20,6 +20,12 @@ android {
         targetSdk = 35
         versionCode = maikVersionCode
         versionName = maikVersionName
+
+        // MediaPipe ships four ABIs of a ~27 MB native library. Every phone that
+        // can hold a 1.7B model is arm64, and dropping the rest halves the APK.
+        ndk {
+            abiFilters += "arm64-v8a"
+        }
     }
 
     // Present only when CI (or you) supplies a keystore; otherwise release builds
@@ -58,12 +64,27 @@ android {
 
     buildFeatures {
         compose = true
+        // Off by default in AGP 8, but stated so nobody re-enables them by accident.
+        buildConfig = false
+        resValues = false
+        shaders = false
+    }
+
+    packaging {
+        resources {
+            excludes += setOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "/META-INF/*.version",
+                "DebugProbesKt.bin",
+                "kotlin-tooling-metadata.json"
+            )
+        }
     }
 }
 
 dependencies {
     // On-device inference. Runs a LiteRT .task bundle locally — no AICore, no cloud.
-    implementation("com.google.mediapipe:tasks-genai:0.10.24")
+    implementation("com.google.mediapipe:tasks-genai:0.10.35")
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("androidx.core:core-ktx:1.15.0")
@@ -74,6 +95,5 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-core")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

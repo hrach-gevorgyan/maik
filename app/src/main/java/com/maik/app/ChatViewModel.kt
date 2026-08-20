@@ -57,8 +57,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var query by mutableStateOf("")
 
-    /** Tokens arriving from the current generation, before they're committed. */
+    /** Raw tokens from the current generation, reasoning tags and all. */
     var streaming by mutableStateOf("")
+        private set
+
+    /** The live split of [streaming] into reasoning and answer. */
+    val live: Split get() = Split.of(streaming)
+
+    /** When the current turn started, so the thinking indicator can count up. */
+    var turnStartedAt by mutableStateOf(0L)
+        private set
+
+    var thinkingEnabled by mutableStateOf(true)
         private set
 
     /** How many old messages fell outside the context window on the last turn. */
@@ -86,6 +96,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         conversations.addAll(chats.load())
+        thinkingEnabled = store.thinking
         watchDownloads()
         stage = when {
             store.isReady() -> Stage.Loading.also { loadEngine() }
@@ -186,6 +197,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun setThinking(enabled: Boolean) {
+        store.setThinking(enabled)
+        thinkingEnabled = enabled
+    }
+
     fun retry() {
         if (store.isReady()) loadEngine() else stage = Stage.NeedsModel
     }
@@ -224,7 +240,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             getApplication(),
             LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(path)
-                .setMaxTokens(MAX_TOKENS)
+                .setMaxTokens(store.spec.contextTokens)
                 .setPreferredBackend(preferred)
                 .build()
         )
@@ -267,6 +283,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
         busy = true
         streaming = ""
+        turnStartedAt = System.currentTimeMillis()
         val conversationId = convo.id
         val turn = ++generation
 
@@ -305,15 +322,25 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun stop() {
         if (!busy) return
         val conversationId = currentId ?: return
-        val partial = streaming.trim()
+        val split = Split.of(streaming)
+        val seconds = thoughtSeconds()
         generation++
         session = null
         streaming = ""
         busy = false
-        if (partial.isNotEmpty()) {
+
+        // Prefer what the reader was actually shown; fall back to the reasoning
+        // only when it was stopped before the answer began.
+        val kept = split.answer.trim().ifEmpty { split.reasoning.trim() }
+        if (kept.isNotEmpty()) {
             replace(conversationId) {
                 it.copy(
-                    messages = it.messages + Message(partial, fromUser = false),
+                    messages = it.messages + Message(
+                        text = kept,
+                        fromUser = false,
+                        reasoning = split.reasoning.ifEmpty { null },
+                        thoughtSeconds = seconds
+                    ),
                     updatedAt = System.currentTimeMillis()
                 )
             }
@@ -330,26 +357,50 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
             streaming += partial.orEmpty()
-            if (done) finish(conversationId, streaming.trim().ifEmpty { "…" }, isError = false)
+            if (done) {
+                val split = Split.of(streaming)
+                finish(
+                    conversationId = conversationId,
+                    text = split.answer.trim().ifEmpty { "…" },
+                    isError = false,
+                    reasoning = split.reasoning.ifEmpty { null }
+                )
+            }
         }
     }
 
-    private fun finish(conversationId: String, text: String, isError: Boolean) {
+    private fun finish(
+        conversationId: String,
+        text: String,
+        isError: Boolean,
+        reasoning: String? = null
+    ) {
+        val seconds = thoughtSeconds()
         runCatching { session?.close() }
         session = null
         streaming = ""
         busy = false
         replace(conversationId) {
             it.copy(
-                messages = it.messages + Message(text, fromUser = false, isError = isError),
+                messages = it.messages + Message(
+                    text = text,
+                    fromUser = false,
+                    isError = isError,
+                    reasoning = reasoning,
+                    thoughtSeconds = if (reasoning != null) seconds else 0
+                ),
                 updatedAt = System.currentTimeMillis()
             )
         }
         persist()
     }
 
+    private fun thoughtSeconds(): Int =
+        if (turnStartedAt == 0L) 0
+        else ((System.currentTimeMillis() - turnStartedAt) / 1000).toInt()
+
     /**
-     * Qwen2.5 expects ChatML; the bundle ships a tokenizer, not a chat template.
+     * Renders the transcript in whichever format the loaded family expects.
      *
      * The KV cache is fixed at [MAX_TOKENS] when the model is converted, so a long
      * transcript has to be trimmed or generation fails outright. Keep the newest
@@ -362,7 +413,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             "device. Answer clearly and concisely."
 
         val history = convo.messages.filterNot { it.isError }
-        var budget = INPUT_TOKEN_BUDGET - estimateTokens(system) - 8
+        // Leave a generous slice for the reply — a reasoning model spends a lot of
+        // the window thinking before the first user-visible word appears.
+        val inputBudget = (spec.contextTokens * 0.55).toInt()
+        var budget = inputBudget - estimateTokens(system) - 8
         val kept = ArrayDeque<Message>()
 
         for (message in history.asReversed()) {
@@ -373,17 +427,39 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
         dropped = history.size - kept.size
 
-        return buildString {
-            append("<|im_start|>system\n").append(system).append("<|im_end|>\n")
-            kept.forEach { m ->
-                append("<|im_start|>")
-                append(if (m.fromUser) "user" else "assistant")
-                append("\n")
-                append(m.text)
-                append("<|im_end|>\n")
-            }
-            append("<|im_start|>assistant\n")
+        return when (spec.template) {
+            Template.CHATML -> buildChatMl(system, kept.toList())
+            Template.GEMMA -> buildGemma(system, kept.toList())
         }
+    }
+
+    private fun buildChatMl(system: String, kept: List<Message>) = buildString {
+        append("<|im_start|>system\n").append(system).append("<|im_end|>\n")
+        kept.forEachIndexed { index, m ->
+            append("<|im_start|>")
+            append(if (m.fromUser) "user" else "assistant")
+            append("\n")
+            append(m.text)
+            // Qwen reads /no_think as a per-turn switch; only the last one counts.
+            if (m.fromUser && index == kept.lastIndex && spec.reasoning && !thinkingEnabled) {
+                append(" /no_think")
+            }
+            append("<|im_end|>\n")
+        }
+        append("<|im_start|>assistant\n")
+    }
+
+    /** Gemma has no system role, so the instructions ride along with the first turn. */
+    private fun buildGemma(system: String, kept: List<Message>) = buildString {
+        kept.forEachIndexed { index, m ->
+            append("<start_of_turn>")
+            append(if (m.fromUser) "user" else "model")
+            append("\n")
+            if (index == 0 && m.fromUser) append(system).append("\n\n")
+            append(m.text)
+            append("<end_of_turn>\n")
+        }
+        append("<start_of_turn>model\n")
     }
 
     /* ---------- plumbing ---------- */
@@ -406,12 +482,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     companion object {
-        /** Must not exceed the `ekv` figure baked into the bundle's filename. */
-        const val MAX_TOKENS = 1280
-
-        /** The remainder of the window is left free for the reply. */
-        const val INPUT_TOKEN_BUDGET = 880
-
         /** Rough for English, deliberately pessimistic so we under-fill. */
         fun estimateTokens(text: String): Int = (text.length / 3.2).toInt() + 1
     }

@@ -7,6 +7,37 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 1.1.0 — 20 August 2026
+
+**Four models to choose from, and a much better one by default.**
+
+- **Gemma 4 E2B is the new default** — Google's newest small model, and one of the
+  very few in its family you can download without an account or a license
+  click-through. It replaces Qwen2.5 1.5B, which was both weaker and a larger
+  download.
+- **Two Liquid AI models join the picker**: LFM2.5 1.2B (the fastest thing here,
+  and only 736 MB) and LFM2.5 2.6B. Both are built specifically for phone
+  latency. Qwen2.5 1.5B stays as a fallback in the older file format.
+- **The context window tripled**, from 1280 tokens to 4096. Conversations run
+  roughly three times longer before anything is forgotten.
+- **A thinking indicator.** When a model works through a problem before answering,
+  you see it happening — a shimmering label, a running clock, and its reasoning
+  scrolling past underneath. Once it answers, the reasoning collapses into a
+  "Thought for 8s" line you can expand.
+
+**The app is much smaller.** 57 MB down to **36 MB**, by shipping only the ARM64
+build of the inference engine instead of all four processor architectures.
+
+**Builds are much faster too** — around 6 seconds for an incremental build, thanks
+to Gradle's configuration cache and parallel execution.
+
+### Fixed
+
+- The 1.0.1 release never published, because the signature check was looking for
+  the old v1 JAR signature that modern Android builds no longer produce.
+
+---
+
 ## 1.0.1 — 20 August 2026
 
 **Fixes the 1.0.0 download, which could not be installed.** The release build was
