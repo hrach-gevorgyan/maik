@@ -54,6 +54,12 @@ fun ConversationListScreen(vm: ChatViewModel) {
         }
         HorizontalLine()
 
+        if (vm.conversations.isNotEmpty()) {
+            Box(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                SearchField(vm.query) { vm.query = it }
+            }
+        }
+
         Box(Modifier.weight(1f)) {
             if (vm.conversations.isEmpty()) {
                 Column(
@@ -70,12 +76,25 @@ fun ConversationListScreen(vm: ChatViewModel) {
                         color = scheme.onSurfaceVariant.copy(alpha = 0.5f)
                     )
                 }
+            } else if (vm.visibleConversations.isEmpty()) {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 28.dp),
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        "Nothing matches \"${vm.query.trim()}\"",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = scheme.onSurfaceVariant.copy(alpha = 0.45f)
+                    )
+                }
             } else {
                 LazyColumn(
                     Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 96.dp)
                 ) {
-                    items(vm.conversations, key = { it.id }) { convo ->
+                    items(vm.visibleConversations, key = { it.id }) { convo ->
                         ConversationRow(
                             convo = convo,
                             onOpen = { vm.open(convo.id) },
@@ -250,6 +269,19 @@ fun SettingsScreen(vm: ChatViewModel) {
                 OutlineButton("Delete all conversations") { confirmWipe = true }
 
                 Spacer(Modifier.height(30.dp))
+                SectionLabel("RUNNING ON")
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    when (vm.backend) {
+                        Backend.GPU -> "GPU. The fast path."
+                        Backend.CPU -> "CPU. The GPU delegate was refused on this device."
+                        Backend.NONE -> "Nothing loaded yet."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.45f)
+                )
+
+                Spacer(Modifier.height(30.dp))
                 SectionLabel("ABOUT")
                 Spacer(Modifier.height(10.dp))
                 Text(
@@ -354,6 +386,7 @@ private fun ModelCard(
 fun SetupScreen(vm: ChatViewModel) {
     val scheme = MaterialTheme.colorScheme
     val spec = vm.spec
+    var warnMetered by remember { mutableStateOf(false) }
 
     Column(
         Modifier
@@ -377,7 +410,9 @@ fun SetupScreen(vm: ChatViewModel) {
                 SpecRow("SIZE", "${spec.approxMb} MB, one time")
                 SpecRow("AFTER", "Fully offline")
                 Spacer(Modifier.height(30.dp))
-                BigButton("Download model", onClick = vm::startDownload)
+                BigButton("Download model") {
+                    if (vm.onMeteredNetwork()) warnMetered = true else vm.startDownload()
+                }
                 Spacer(Modifier.height(14.dp))
                 Text(
                     "Use Wi-Fi. Nothing you type is ever uploaded.",
@@ -456,6 +491,80 @@ fun SetupScreen(vm: ChatViewModel) {
                 .clip(RoundedCornerShape(10.dp))
                 .clickable(onClick = vm::openList)
                 .padding(horizontal = 10.dp, vertical = 6.dp)
+        )
+    }
+
+    if (warnMetered) {
+        MeteredDialog(
+            spec = spec,
+            onProceed = {
+                warnMetered = false
+                vm.startDownload()
+            },
+            onDismiss = { warnMetered = false }
+        )
+    }
+}
+
+@Composable
+private fun MeteredDialog(spec: ModelSpec, onProceed: () -> Unit, onDismiss: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = scheme.surfaceVariant,
+        title = {
+            Text(
+                "You are not on Wi-Fi",
+                style = MaterialTheme.typography.titleMedium,
+                color = scheme.onSurface
+            )
+        },
+        text = {
+            Text(
+                "This will pull ${spec.approxMb} MB over a metered connection. " +
+                    "That is a real hole in most data plans.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurfaceVariant.copy(alpha = 0.6f)
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onProceed) {
+                Text("Download anyway", color = Color(0xFFFF9BA6))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Wait for Wi-Fi", color = scheme.primary)
+            }
+        }
+    )
+}
+
+@Composable
+private fun SearchField(value: String, onValueChange: (String) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(scheme.surface)
+            .border(1.dp, scheme.outline, RoundedCornerShape(20.dp))
+            .padding(horizontal = 16.dp, vertical = 11.dp)
+    ) {
+        if (value.isEmpty()) {
+            Text(
+                "Search conversations",
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurfaceVariant.copy(alpha = 0.35f)
+            )
+        }
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = scheme.onSurface),
+            cursorBrush = SolidColor(scheme.primary),
+            modifier = Modifier.fillMaxWidth()
         )
     }
 }

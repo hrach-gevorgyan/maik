@@ -3,7 +3,11 @@ package com.maik.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,7 +17,9 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -38,6 +44,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -124,6 +131,9 @@ private fun ChatScreen(vm: ChatViewModel) {
             if (convo.messages.isEmpty() && !vm.busy) {
                 item { ChatEmptyState(vm.spec.label) }
             }
+            if (vm.dropped > 0) {
+                item { ContextNotice(vm.dropped) }
+            }
             items(convo.messages) { msg -> Bubble(msg) }
             if (vm.busy) {
                 item {
@@ -136,11 +146,12 @@ private fun ChatScreen(vm: ChatViewModel) {
         Composer(
             value = input,
             onValueChange = { input = it },
-            enabled = !vm.busy,
+            busy = vm.busy,
             onSend = {
                 vm.send(input)
                 input = ""
-            }
+            },
+            onStop = vm::stop
         )
     }
 }
@@ -158,9 +169,11 @@ private fun ChatEmptyState(modelLabel: String) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun Bubble(msg: Message) {
     val scheme = MaterialTheme.colorScheme
+    val context = LocalContext.current
     val bg = when {
         msg.isError -> Color(0xFF2A1418)
         msg.fromUser -> scheme.primary
@@ -187,8 +200,33 @@ private fun Bubble(msg: Message) {
                     else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
                 )
                 .background(bg)
+                .combinedClickable(
+                    onClick = {},
+                    onLongClick = { copyToClipboard(context, msg.text) }
+                )
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         )
+    }
+}
+
+@Composable
+private fun ContextNotice(dropped: Int) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+        Text(
+            "$dropped earlier message${if (dropped == 1) "" else "s"} " +
+                "no longer fit in the model's memory",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+        )
+    }
+}
+
+private fun copyToClipboard(context: Context, text: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+    clipboard?.setPrimaryClip(ClipData.newPlainText("maik", text))
+    // Android 13+ shows its own copy confirmation; a second one would be noise.
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+        Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -227,10 +265,12 @@ fun TypingDots() {
 private fun Composer(
     value: String,
     onValueChange: (String) -> Unit,
-    enabled: Boolean,
-    onSend: () -> Unit
+    busy: Boolean,
+    onSend: () -> Unit,
+    onStop: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
+    val enabled = !busy
     val canSend = value.isNotBlank() && enabled
 
     Row(
@@ -270,14 +310,18 @@ private fun Composer(
             Modifier
                 .size(50.dp)
                 .clip(CircleShape)
-                .background(if (canSend) scheme.primary else scheme.surfaceVariant)
-                .clickable(enabled = canSend, onClick = onSend),
+                .background(if (canSend || busy) scheme.primary else scheme.surfaceVariant)
+                .clickable(enabled = canSend || busy, onClick = if (busy) onStop else onSend),
             contentAlignment = Alignment.Center
         ) {
-            ArrowUp(
-                if (canSend) scheme.onPrimary
-                else scheme.onSurfaceVariant.copy(alpha = 0.35f)
-            )
+            if (busy) {
+                StopSquare(scheme.onPrimary)
+            } else {
+                ArrowUp(
+                    if (canSend) scheme.onPrimary
+                    else scheme.onSurfaceVariant.copy(alpha = 0.35f)
+                )
+            }
         }
     }
 }
@@ -410,6 +454,19 @@ fun ArrowUp(tint: Color) {
         drawLine(tint, Offset(w / 2, w * 0.88f), Offset(w / 2, w * 0.12f), s, StrokeCap.Round)
         drawLine(tint, Offset(w * 0.16f, w * 0.46f), Offset(w / 2, w * 0.12f), s, StrokeCap.Round)
         drawLine(tint, Offset(w * 0.84f, w * 0.46f), Offset(w / 2, w * 0.12f), s, StrokeCap.Round)
+    }
+}
+
+@Composable
+fun StopSquare(tint: Color) {
+    Canvas(Modifier.size(16.dp)) {
+        val w = size.width
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.14f, w * 0.14f),
+            size = androidx.compose.ui.geometry.Size(w * 0.72f, w * 0.72f),
+            cornerRadius = androidx.compose.ui.geometry.CornerRadius(w * 0.16f)
+        )
     }
 }
 

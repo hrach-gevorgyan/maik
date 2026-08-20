@@ -1,0 +1,113 @@
+name: Release
+
+# Tag a commit to cut a release:
+#   git tag v1.0.0 && git push origin v1.0.0
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, without the leading v (e.g. 1.0.1)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Work out the version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          # Turn 1.2.3 into a monotonic integer: 1*10000 + 2*100 + 3
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+          CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+          echo "name=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Building $VERSION (versionCode $CODE)"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore the signing keystore
+        id: keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/maik.jks"
+            echo "path=$RUNNER_TEMP/maik.jks" >> "$GITHUB_OUTPUT"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No KEYSTORE_BASE64 secret — the APK will be unsigned."
+          fi
+
+      - name: Build the APK
+        env:
+          MAIK_KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
+          MAIK_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          MAIK_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          MAIK_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease \
+            -PmaikVersionName=${{ steps.version.outputs.name }} \
+            -PmaikVersionCode=${{ steps.version.outputs.code }} \
+            --no-daemon
+
+      - name: Name the artifact
+        id: apk
+        run: |
+          SRC=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+          DEST="maik-${{ steps.version.outputs.name }}.apk"
+          cp "$SRC" "$DEST"
+          echo "path=$DEST" >> "$GITHUB_OUTPUT"
+          echo "size=$(( $(stat -c%s "$DEST") / 1024 / 1024 )) MB" >> "$GITHUB_OUTPUT"
+
+      - name: Pull this version's notes out of the changelog
+        id: notes
+        run: |
+          VERSION="${{ steps.version.outputs.name }}"
+          # Everything between this version's heading and the next one.
+          awk -v v="## $VERSION" '
+            $0 ~ "^" v { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > notes.md
+
+          if [ ! -s notes.md ]; then
+            echo "No changelog entry for $VERSION yet." > notes.md
+          fi
+
+          if [ "${{ steps.keystore.outputs.signed }}" != "true" ]; then
+            {
+              echo ""
+              echo "---"
+              echo ""
+              echo "> **This APK is unsigned.** Add \`KEYSTORE_BASE64\`, \`KEYSTORE_PASSWORD\`,"
+              echo "> \`KEY_ALIAS\` and \`KEY_PASSWORD\` to the repository secrets to get"
+              echo "> signed builds that can be installed as upgrades."
+            } >> notes.md
+          fi
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', steps.version.outputs.name) || github.ref_name }}
+          name: maik ${{ steps.version.outputs.name }}
+          body_path: notes.md
+          files: ${{ steps.apk.outputs.path }}

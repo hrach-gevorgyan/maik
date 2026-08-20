@@ -5,6 +5,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+// Single source of truth for the version, overridable from CI:
+//   ./gradlew assembleRelease -PmaikVersionName=1.2.0 -PmaikVersionCode=5
+val maikVersionName: String = (findProperty("maikVersionName") as String?) ?: "1.0.0"
+val maikVersionCode: Int = (findProperty("maikVersionCode") as String?)?.toInt() ?: 1
+
 android {
     namespace = "com.maik.app"
     compileSdk = 35
@@ -13,13 +18,32 @@ android {
         applicationId = "com.maik.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = maikVersionCode
+        versionName = maikVersionName
+    }
+
+    // Present only when CI (or you) supplies a keystore; otherwise release builds
+    // come out unsigned and the workflow says so plainly.
+    val keystorePath = System.getenv("MAIK_KEYSTORE_PATH")
+    val hasKeystore = !keystorePath.isNullOrBlank() && file(keystorePath).exists()
+
+    signingConfigs {
+        if (hasKeystore) {
+            create("release") {
+                storeFile = file(keystorePath!!)
+                storePassword = System.getenv("MAIK_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("MAIK_KEY_ALIAS")
+                keyPassword = System.getenv("MAIK_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
+            // R8 is left off: MediaPipe's JNI entry points need keep rules that
+            // aren't worth debugging for a sideloaded app.
             isMinifyEnabled = false
+            if (hasKeystore) signingConfig = signingConfigs.getByName("release")
         }
     }
 

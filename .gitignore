@@ -16,7 +16,7 @@ captures/
 
 # Build outputs & signing
 *.apk
-!dist/*.apk
+# APKs ship through GitHub Releases, not the repo tree.
 *.aab
 *.ap_
 *.dex
