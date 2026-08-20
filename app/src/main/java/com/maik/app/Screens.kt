@@ -408,6 +408,14 @@ fun SetupScreen(vm: ChatViewModel) {
                         color = scheme.primary
                     )
                 }
+                Spacer(Modifier.height(18.dp))
+                Text(
+                    "Keeps going if you lock the screen or leave the app.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.35f)
+                )
+                Spacer(Modifier.height(20.dp))
+                OutlineButton("Cancel download", vm::cancelDownload)
             }
 
             is Stage.Loading -> {

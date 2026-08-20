@@ -2,7 +2,11 @@ package com.maik.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import android.Manifest
+import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.core.*
@@ -55,6 +59,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun Root(vm: ChatViewModel = viewModel()) {
     BackHandler(enabled = vm.screen != Screen.List) { vm.openList() }
+    AskForNotifications()
 
     Box(
         Modifier
@@ -72,6 +77,19 @@ private fun Root(vm: ChatViewModel = viewModel()) {
             }
         }
     }
+}
+
+/**
+ * The download runs as a foreground service, which needs a notification to show
+ * its progress. Denying this doesn't stop the download — it just hides it.
+ */
+@Composable
+private fun AskForNotifications() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+    LaunchedEffect(Unit) { launcher.launch(Manifest.permission.POST_NOTIFICATIONS) }
 }
 
 /* ================= chat ================= */

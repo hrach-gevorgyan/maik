@@ -59,8 +59,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         conversations.addAll(chats.load())
-        stage = if (store.isReady()) Stage.Loading else Stage.NeedsModel
-        if (store.isReady()) loadEngine()
+        watchDownloads()
+        stage = when {
+            store.isReady() -> Stage.Loading.also { loadEngine() }
+            DownloadBus.running.value -> Stage.Downloading(0, spec.approxBytes)
+            else -> Stage.NeedsModel
+        }
     }
 
     /* ---------- navigation ---------- */
@@ -120,12 +124,26 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun startDownload() {
         if (stage is Stage.Downloading) return
         stage = Stage.Downloading(0, spec.approxBytes)
+        // Handed to a foreground service so it keeps going when the screen locks.
+        DownloadService.start(getApplication())
+    }
+
+    fun cancelDownload() {
+        getApplication<Application>().startService(
+            android.content.Intent(getApplication(), DownloadService::class.java)
+                .setAction(DownloadService.ACTION_CANCEL)
+        )
+    }
+
+    /** Attaches to whatever the service is doing, whenever the UI comes back. */
+    private fun watchDownloads() {
         viewModelScope.launch {
-            store.download().collect { event ->
+            DownloadBus.state.collect { event ->
                 when (event) {
                     is Download.Progress -> stage = Stage.Downloading(event.bytes, event.total)
                     is Download.Failed -> stage = Stage.Broken(event.reason)
-                    is Download.Done -> loadEngine()
+                    is Download.Done -> if (stage !is Stage.Ready) loadEngine()
+                    null -> Unit
                 }
             }
         }
