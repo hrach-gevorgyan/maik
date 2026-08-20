@@ -35,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -68,7 +69,15 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun Root(vm: ChatViewModel = viewModel()) {
     MaikTheme(vm.themeMode) {
+      CompositionLocalProvider(LocalHaptics provides vm.hapticsEnabled) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            // Coming back from the notification should land on the download, not
+            // on whatever screen happened to be open when you left.
+            val downloading by DownloadBus.running.collectAsState()
+            LaunchedEffect(downloading) {
+                if (downloading && vm.screen == Screen.List) vm.showDownload()
+            }
+
             // Back always means "up one level", never "leave the app mid-chat".
             BackHandler(enabled = vm.screen != Screen.List) { vm.back() }
 
@@ -98,6 +107,7 @@ private fun Root(vm: ChatViewModel = viewModel()) {
                 }
             }
         }
+      }
     }
 }
 
@@ -108,7 +118,7 @@ private fun ChatScreen(vm: ChatViewModel) {
     val convo = vm.current ?: return
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
-    val haptics = LocalHapticFeedback.current
+    val buzz = tap()
     val count = convo.messages.size
     var pickingModel by remember { mutableStateOf(false) }
 
@@ -178,7 +188,7 @@ private fun ChatScreen(vm: ChatViewModel) {
             if (!vm.busy && convo.messages.lastOrNull()?.fromUser == false) {
                 item {
                     QuietAction("Regenerate") {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        buzz()
                         vm.regenerate()
                     }
                 }
@@ -197,17 +207,27 @@ private fun ChatScreen(vm: ChatViewModel) {
             )
         }
 
+        if (vm.modelFor(convo).reasoning) {
+            ThinkingSwitch(
+                on = vm.thinkingEnabled,
+                onChange = {
+                    buzz()
+                    vm.setThinking(it)
+                }
+            )
+        }
+
         Composer(
             value = input,
             onValueChange = { input = it },
             busy = vm.busy,
             onSend = {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                buzz()
                 vm.send(input)
                 input = ""
             },
             onStop = {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                buzz()
                 vm.stop()
             }
         )
@@ -232,7 +252,7 @@ private fun ChatEmptyState(modelLabel: String) {
 private fun Bubble(msg: Message) {
     val scheme = MaterialTheme.colorScheme
     val context = LocalContext.current
-    val haptics = LocalHapticFeedback.current
+    val buzz = tap()
 
     val bg = when {
         msg.isError -> Color(0xFF2A1418)
@@ -260,7 +280,7 @@ private fun Bubble(msg: Message) {
                 .combinedClickable(
                     onClick = {},
                     onLongClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        buzz()
                         copyToClipboard(context, msg.text)
                     }
                 )
@@ -479,6 +499,48 @@ private fun ModelPicker(
     )
 }
 
+/**
+ * Whether this model should reason before answering. It lives here rather than in
+ * Settings because it changes what the next reply will be like, and that decision
+ * belongs next to the thing you are about to send.
+ */
+@Composable
+private fun ThinkingSwitch(on: Boolean, onChange: (Boolean) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val source = rememberPressSource()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp)
+            .pressable(source)
+            .clip(CircleShape)
+            .clickable(interactionSource = source, indication = null) { onChange(!on) }
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier
+                .size(7.dp)
+                .background(
+                    if (on) scheme.primary else scheme.onSurfaceVariant.copy(alpha = 0.3f),
+                    CircleShape
+                )
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            if (on) "Thinks before answering" else "Answers straight away",
+            style = MaterialTheme.typography.labelSmall,
+            color = scheme.onSurfaceVariant.copy(alpha = 0.45f)
+        )
+        Spacer(Modifier.weight(1f))
+        Text(
+            if (on) "Turn off" else "Turn on",
+            style = MaterialTheme.typography.labelSmall,
+            color = scheme.primary
+        )
+    }
+}
+
 /* ================= shared ================= */
 
 @Composable
@@ -580,7 +642,7 @@ fun HorizontalLine() {
 @Composable
 fun BigButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    val haptics = LocalHapticFeedback.current
+    val buzz = tap()
     val source = rememberPressSource()
     Box(
         Modifier
@@ -589,7 +651,7 @@ fun BigButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
             .clip(CircleShape)
             .background(if (enabled) scheme.primary else scheme.surfaceVariant)
             .clickable(enabled = enabled, interactionSource = source, indication = null) {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                buzz()
                 onClick()
             }
             .padding(vertical = 17.dp),

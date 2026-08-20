@@ -36,7 +36,7 @@ sealed interface Stage {
 enum class Screen { List, Chat, Settings, Setup }
 
 /** Settings is a menu of pages, not one long scroll. */
-enum class SettingsPage { Root, Models, Appearance, Instructions, Storage, About }
+enum class SettingsPage { Root, Models, Appearance, Behaviour, Instructions, Storage, About }
 
 /** Which compute unit the loaded engine ended up on. */
 enum class Backend { GPU, CPU, NONE }
@@ -75,9 +75,21 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     var settingsPage by mutableStateOf(SettingsPage.Root)
         private set
-    var themeMode by mutableStateOf(ThemeMode.DARK)
+    var themeMode by mutableStateOf(ThemeMode.LIGHT)
         private set
     var systemPrompt by mutableStateOf(DEFAULT_SYSTEM_PROMPT)
+        private set
+    var hapticsEnabled by mutableStateOf(true)
+        private set
+    var useGpu by mutableStateOf(false)
+        private set
+
+    /**
+     * Bumped whenever a model file appears or disappears. Reading the disk during
+     * composition is not observable state, which is why deleting a model used to
+     * leave the row sitting there.
+     */
+    var storageVersion by mutableStateOf(0)
         private set
     var thinkingEnabled by mutableStateOf(true)
         private set
@@ -99,6 +111,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     private var engine: LlmInference? = null
     private var session: LlmInferenceSession? = null
+
+    /** Which conversation [session] holds the context of. */
+    private var sessionOwner: String? = null
 
     /** Which spec [engine] was built from, so a chat can demand a different one. */
     private var loadedId: String? = null
@@ -128,6 +143,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         thinkingEnabled = store.thinking
         systemPrompt = store.systemPrompt
         themeMode = store.themeMode
+        hapticsEnabled = store.haptics
+
+        // If the process died during the last load, the GPU delegate is the prime
+        // suspect: it crashes natively on some drivers and cannot be caught.
+        useGpu = store.useGpu && !store.lastLoadCrashed()
+        if (store.lastLoadCrashed()) {
+            store.setUseGpu(false)
+            store.endRiskyLoad()
+        }
         watchDownloads()
         target = store.spec
         stage = when {
@@ -142,6 +166,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun openList() {
         screen = Screen.List
         currentId = null
+    }
+
+    /** Brings the download into view, e.g. when returning from its notification. */
+    fun showDownload() {
+        screen = Screen.Setup
     }
 
     fun openSettings() {
@@ -218,6 +247,20 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun setThinking(enabled: Boolean) {
         store.setThinking(enabled)
         thinkingEnabled = enabled
+    }
+
+    fun updateHaptics(enabled: Boolean) {
+        store.setHaptics(enabled)
+        hapticsEnabled = enabled
+    }
+
+    fun updateUseGpu(enabled: Boolean) {
+        store.setUseGpu(enabled)
+        useGpu = enabled
+        if (stage is Stage.Ready || stage is Stage.Broken) {
+            closeEngine()
+            if (store.isReady(target)) loadEngine(target)
+        }
     }
 
     fun updateSystemPrompt(text: String) {
@@ -302,7 +345,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                         if (event.reason == "Cancelled") stage = Stage.NeedsModel
                         else stage = Stage.Broken(event.reason, "", refetch = true)
 
-                    is Download.Done -> if (stage !is Stage.Ready) loadEngine(target)
+                    is Download.Done -> {
+                        storageVersion++
+                        if (stage !is Stage.Ready) loadEngine(target)
+                    }
                     null -> Unit
                 }
             }
@@ -316,6 +362,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteModel(s: ModelSpec = target) {
         if (s.id == loadedId) closeEngine()
         store.delete(s)
+        storageVersion++
         if (s.id == store.spec.id) stage = Stage.NeedsModel
     }
 
@@ -344,11 +391,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Prefers the GPU, which is markedly faster, but falls back to CPU when the
-     * delegate is refused — common enough across drivers to be worth handling.
-     *
-     * If both fail, the GPU error is reported: it is the one that explains why the
-     * fast path was unavailable, and the CPU failure is usually a consequence.
+     * CPU by default. The GPU delegate is faster when it works, but on some drivers
+     * it takes the whole process down with it — a native crash no `catch` can see,
+     * which is why it is opt-in and why a breadcrumb is written around the attempt.
      */
     private fun openEngine(target: ModelSpec): Pair<LlmInference, Backend> {
         val path = store.fileFor(target).absolutePath
@@ -362,16 +407,16 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 .build()
         )
 
-        val gpuFailure = try {
-            return Pair(build(LlmInference.Backend.GPU), Backend.GPU)
-        } catch (e: Throwable) {
-            e
-        }
+        if (!useGpu) return Pair(build(LlmInference.Backend.CPU), Backend.CPU)
 
+        store.beginRiskyLoad()
         return try {
-            Pair(build(LlmInference.Backend.CPU), Backend.CPU)
+            val engine = Pair(build(LlmInference.Backend.GPU), Backend.GPU)
+            store.endRiskyLoad()
+            engine
         } catch (_: Throwable) {
-            throw gpuFailure
+            store.endRiskyLoad()
+            Pair(build(LlmInference.Backend.CPU), Backend.CPU)
         }
     }
 
@@ -380,6 +425,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         runCatching { session?.close() }
         runCatching { engine?.close() }
         session = null
+        sessionOwner = null
         engine = null
         loadedId = null
         busy = false
@@ -414,6 +460,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         if (busy) return
         val trimmed = convo.messages.dropLastWhile { !it.fromUser }
         if (trimmed.isEmpty()) return
+        // The live session still remembers the answer we are discarding.
+        runCatching { session?.close() }
+        session = null
+        sessionOwner = null
         replace(convo.id) { it.copy(messages = trimmed) }
         persist()
         generate(convo.id)
@@ -421,7 +471,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun generate(conversationId: String) {
         val llm = engine
-        if (llm == null || stage !is Stage.Ready) {
+        val convo = conversations.firstOrNull { it.id == conversationId }
+        if (llm == null || convo == null || stage !is Stage.Ready) {
             finish(
                 conversationId,
                 "No model is loaded yet. Open Settings to download one.",
@@ -437,17 +488,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
         viewModelScope.launch {
             try {
-                val built = buildPrompt(conversationId)
                 withContext(Dispatchers.Default) {
-                    val options = LlmInferenceSession.LlmInferenceSessionOptions.builder()
-                        .setTemperature(0.7f)
-                        .setTopK(40)
-                        .build()
-                    // A fresh session per turn: we replay the transcript ourselves, so
-                    // deleting a chat genuinely deletes its context.
-                    val s = LlmInferenceSession.createFromOptions(llm, options)
-                    session = s
-                    s.addQueryChunk(built)
+                    val s = sessionFor(llm, convo)
+                    // Raw text only. The bundle carries its own prompt template and
+                    // the engine applies it; adding our own wraps the model's markup
+                    // in a second layer and it answers the wrong question.
+                    s.addQueryChunk(convo.messages.last().text)
                     s.generateResponseAsync(ProgressListener<String> { partial, done ->
                         onToken(turn, conversationId, partial, done)
                     })
@@ -461,11 +507,69 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * A session holds its own conversation state, so one is kept per chat and reused
+     * across turns. When a chat is opened fresh — a new session, but an existing
+     * history — the earlier turns are replayed once as ordinary prose, which the
+     * template then wraps exactly once.
+     */
+    private fun sessionFor(llm: LlmInference, convo: Conversation): LlmInferenceSession {
+        val existing = session
+        if (existing != null && sessionOwner == convo.id && !overflowed(convo)) return existing
+
+        runCatching { existing?.close() }
+        val options = LlmInferenceSession.LlmInferenceSessionOptions.builder()
+            .setTemperature(0.7f)
+            .setTopK(40)
+            .build()
+        val fresh = LlmInferenceSession.createFromOptions(llm, options)
+        session = fresh
+        sessionOwner = convo.id
+
+        val history = convo.messages.dropLast(1).filterNot { it.isError }
+        val recent = trimToBudget(history, modelFor(convo))
+        dropped = history.size - recent.size
+        if (recent.isNotEmpty()) fresh.addQueryChunk(recap(recent))
+        return fresh
+    }
+
+    /** True once a chat has grown past what its model's window can hold. */
+    private fun overflowed(convo: Conversation): Boolean {
+        val budget = (modelFor(convo).contextTokens * 0.55).toInt()
+        val used = convo.messages.sumOf { estimateTokens(it.text) + 8 }
+        return used > budget
+    }
+
+    private fun trimToBudget(history: List<Message>, model: ModelSpec): List<Message> {
+        var budget = (model.contextTokens * 0.45).toInt() - estimateTokens(systemPrompt)
+        val kept = ArrayDeque<Message>()
+        for (message in history.asReversed()) {
+            val cost = estimateTokens(message.text) + 8
+            if (budget - cost < 0) break
+            budget -= cost
+            kept.addFirst(message)
+        }
+        return kept.toList()
+    }
+
+    /** Prior turns as plain prose — no role tags, nothing the tokenizer treats as markup. */
+    private fun recap(history: List<Message>): String = buildString {
+        append(systemPrompt).append("\n\n")
+        append("Here is our conversation so far.\n")
+        history.forEach { m ->
+            append(if (m.fromUser) "Me: " else "You: ")
+            append(m.text)
+            append("\n")
+        }
+        append("\nContinue from here.\n")
+    }
+
+    /**
      * Keeps whatever the reader has already seen and walks away from the rest.
      *
-     * The native call can't be interrupted safely mid-flight, so rather than tear
+     * The native call cannot be interrupted safely mid-flight, so rather than tear
      * the session down underneath it we stop listening: late tokens arrive with a
-     * stale turn number and get discarded.
+     * stale turn number and are discarded. The session itself is dropped, because it
+     * now holds a reply the conversation does not.
      */
     fun stop() {
         if (!busy) return
@@ -473,7 +577,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val split = Split.of(streaming)
         val seconds = thoughtSeconds()
         generation++
+        runCatching { session?.close() }
         session = null
+        sessionOwner = null
         streaming = ""
         busy = false
 
@@ -498,8 +604,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         // Callbacks arrive off the main thread; hop back before touching state.
         viewModelScope.launch(Dispatchers.Main) {
             if (turn != generation) {
-                // A stopped or superseded turn. Let it finish, then drop it.
-                if (done) runCatching { session?.close() }
+                // A stopped or superseded turn: its tokens belong to a session we
+                // have already walked away from.
                 return@launch
             }
             streaming += partial.orEmpty()
@@ -522,8 +628,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         reasoning: String? = null
     ) {
         val seconds = thoughtSeconds()
-        runCatching { session?.close() }
-        session = null
         streaming = ""
         busy = false
         replace(conversationId) {
@@ -544,95 +648,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private fun thoughtSeconds(): Int =
         if (turnStartedAt == 0L) 0
         else ((System.currentTimeMillis() - turnStartedAt) / 1000).toInt()
-
-    /**
-     * Renders the transcript in whichever format the loaded family expects.
-     *
-     * The KV cache is fixed when a model is converted, so a long transcript has to
-     * be trimmed or generation fails outright. Keep the newest messages that fit and
-     * report how many were dropped, rather than silently forgetting them.
-     */
-    private fun buildPrompt(conversationId: String): String {
-        val convo = conversations.firstOrNull { it.id == conversationId } ?: return ""
-        val model = modelFor(convo)
-        val system = systemPrompt
-
-        val history = convo.messages.filterNot { it.isError }
-        // Leave a generous slice for the reply — a reasoning model spends much of
-        // the window thinking before the first user-visible word appears.
-        val inputBudget = (model.contextTokens * 0.55).toInt()
-        var budget = inputBudget - estimateTokens(system) - 8
-        val kept = ArrayDeque<Message>()
-
-        for (message in history.asReversed()) {
-            val cost = estimateTokens(message.text) + 8 // role tags and newlines
-            if (budget - cost < 0 && kept.isNotEmpty()) break
-            budget -= cost
-            kept.addFirst(message)
-        }
-        dropped = history.size - kept.size
-
-        return when (model.template) {
-            Template.CHATML -> buildChatMl(system, kept.toList(), model)
-            Template.PHI -> buildPhi(system, kept.toList())
-            Template.DEEPSEEK -> buildDeepSeek(system, kept.toList())
-            Template.ZEPHYR -> buildZephyr(system, kept.toList())
-        }
-    }
-
-    private fun buildChatMl(system: String, kept: List<Message>, model: ModelSpec) = buildString {
-        append("<|im_start|>system\n").append(system).append("<|im_end|>\n")
-        kept.forEachIndexed { index, m ->
-            append("<|im_start|>")
-            append(if (m.fromUser) "user" else "assistant")
-            append("\n")
-            append(m.text)
-            // Some families read /no_think as a per-turn switch; only the last counts.
-            if (m.fromUser && index == kept.lastIndex && model.reasoning && !thinkingEnabled) {
-                append(" /no_think")
-            }
-            append("<|im_end|>\n")
-        }
-        append("<|im_start|>assistant\n")
-    }
-
-    /** Phi-4 marks every turn with a role tag closed by `<|end|>`. */
-    private fun buildPhi(system: String, kept: List<Message>) = buildString {
-        append("<|system|>\n").append(system).append("<|end|>\n")
-        kept.forEach { m ->
-            append(if (m.fromUser) "<|user|>\n" else "<|assistant|>\n")
-            append(m.text)
-            append("<|end|>\n")
-        }
-        append("<|assistant|>\n")
-    }
-
-    /**
-     * DeepSeek-R1 uses full-width bar characters in its role tags, and its own card
-     * recommends folding any system instruction into the first user turn.
-     */
-    private fun buildDeepSeek(system: String, kept: List<Message>) = buildString {
-        kept.forEachIndexed { index, m ->
-            if (m.fromUser) {
-                append("<｜User｜>")
-                if (index == 0) append(system).append("\n\n")
-                append(m.text)
-            } else {
-                append("<｜Assistant｜>").append(m.text).append("<｜end▁of▁sentence｜>")
-            }
-        }
-        append("<｜Assistant｜>")
-    }
-
-    /** TinyLlama-Chat was tuned on the Zephyr format. */
-    private fun buildZephyr(system: String, kept: List<Message>) = buildString {
-        append("<|system|>\n").append(system).append("</s>\n")
-        kept.forEach { m ->
-            append(if (m.fromUser) "<|user|>\n" else "<|assistant|>\n")
-            append(m.text).append("</s>\n")
-        }
-        append("<|assistant|>\n")
-    }
 
     /* ---------- plumbing ---------- */
 

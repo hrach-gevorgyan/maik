@@ -49,7 +49,7 @@ private fun Modifier.combinedClick(onClick: () -> Unit, onLongClick: () -> Unit)
 @Composable
 fun ConversationListScreen(vm: ChatViewModel) {
     val scheme = MaterialTheme.colorScheme
-    val haptics = LocalHapticFeedback.current
+    val buzz = tap()
     var menuFor by remember { mutableStateOf<Conversation?>(null) }
     var renaming by remember { mutableStateOf<Conversation?>(null) }
 
@@ -104,7 +104,7 @@ fun ConversationListScreen(vm: ChatViewModel) {
                             convo = convo,
                             onOpen = { vm.open(convo.id) },
                             onLongPress = {
-                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                buzz()
                                 menuFor = convo
                             }
                         )
@@ -114,7 +114,7 @@ fun ConversationListScreen(vm: ChatViewModel) {
             }
 
             NewChatButton {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                buzz()
                 vm.newChat()
             }
         }

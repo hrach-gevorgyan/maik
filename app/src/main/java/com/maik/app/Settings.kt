@@ -47,6 +47,7 @@ fun SettingsScreen(vm: ChatViewModel) {
             SettingsPage.Models -> ModelsPage(vm)
             SettingsPage.Appearance -> AppearancePage(vm)
             SettingsPage.Instructions -> InstructionsPage(vm)
+            SettingsPage.Behaviour -> BehaviourPage(vm)
             SettingsPage.Storage -> StoragePage(vm)
             SettingsPage.About -> AboutPage(vm)
         }
@@ -63,6 +64,9 @@ private data class Entry(
 
 private val ENTRIES = listOf(
     Entry(SettingsPage.Models, "Model") { it.spec.label },
+    Entry(SettingsPage.Instructions, "Instructions") {
+        it.systemPrompt.replace('\n', ' ').take(46).trim() + "…"
+    },
     Entry(SettingsPage.Appearance, "Appearance") {
         when (it.themeMode) {
             ThemeMode.SYSTEM -> "Follow the system"
@@ -70,9 +74,15 @@ private val ENTRIES = listOf(
             ThemeMode.LIGHT -> "Light"
         }
     },
-    Entry(SettingsPage.Instructions, "Instructions") { "How maik should answer" },
-    Entry(SettingsPage.Storage, "Storage") { "${it.bytesOnDisk() / 1024 / 1024} MB used" },
-    Entry(SettingsPage.About, "About") { "How this works, and what it doesn't do" }
+    Entry(SettingsPage.Behaviour, "Behaviour") {
+        buildString {
+            append(if (it.hapticsEnabled) "Vibration on" else "Vibration off")
+            append(" · ")
+            append(if (it.useGpu) "GPU" else "CPU")
+        }
+    },
+    Entry(SettingsPage.Storage, "Storage") { "${it.bytesOnDisk() / 1024 / 1024} MB of models" },
+    Entry(SettingsPage.About, "About") { "Version, licence, how it works" }
 )
 
 @Composable
@@ -126,7 +136,7 @@ private fun MenuRow(title: String, detail: String, onClick: () -> Unit) {
 
 @Composable
 private fun ModelsPage(vm: ChatViewModel) {
-    val installed = vm.installedModels()
+    val installed = remember(vm.storageVersion) { vm.installedModels() }
     Column(Modifier.fillMaxSize()) {
         TopBar(title = "Model", onBack = { vm.openSettingsPage(SettingsPage.Root) })
         LazyColumn(contentPadding = PaddingValues(20.dp)) {
@@ -256,7 +266,7 @@ private fun AppearancePage(vm: ChatViewModel) {
 private fun ChoiceRow(label: String, selected: Boolean, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val source = rememberPressSource()
-    val haptics = LocalHapticFeedback.current
+    val buzz = tap()
     Row(
         Modifier
             .fillMaxWidth()
@@ -269,7 +279,7 @@ private fun ChoiceRow(label: String, selected: Boolean, onClick: () -> Unit) {
                 shape = RoundedCornerShape(16.dp)
             )
             .clickable(interactionSource = source, indication = null) {
-                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                buzz()
                 onClick()
             }
             .padding(horizontal = 18.dp, vertical = 16.dp),
@@ -342,14 +352,17 @@ private fun InstructionsPage(vm: ChatViewModel) {
 private fun StoragePage(vm: ChatViewModel) {
     val scheme = MaterialTheme.colorScheme
     var confirmWipe by remember { mutableStateOf(false) }
-    val installed = vm.installedModels()
+    // Reading the disk is not observable state; this is what makes a deletion
+    // actually disappear from the list.
+    val installed = remember(vm.storageVersion) { vm.installedModels() }
+    val onDisk = remember(vm.storageVersion) { vm.bytesOnDisk() }
 
     Column(Modifier.fillMaxSize()) {
         TopBar(title = "Storage", onBack = { vm.openSettingsPage(SettingsPage.Root) })
         LazyColumn(contentPadding = PaddingValues(20.dp)) {
             item {
                 Text(
-                    "${vm.bytesOnDisk() / 1024 / 1024} MB of models on this device.",
+                    "${onDisk / 1024 / 1024} MB of models on this device.",
                     style = MaterialTheme.typography.titleMedium,
                     color = scheme.onBackground
                 )
@@ -428,6 +441,40 @@ private fun StoragePage(vm: ChatViewModel) {
 }
 
 @Composable
+private fun BehaviourPage(vm: ChatViewModel) {
+    Column(Modifier.fillMaxSize()) {
+        TopBar(title = "Behaviour", onBack = { vm.openSettingsPage(SettingsPage.Root) })
+        Column(Modifier.padding(20.dp)) {
+            ToggleRow(
+                label = "Vibration",
+                detail = "A short tap when you send, stop, or press and hold.",
+                checked = vm.hapticsEnabled,
+                onChange = vm::updateHaptics
+            )
+            Spacer(Modifier.height(12.dp))
+            ToggleRow(
+                label = "Use the GPU",
+                detail = "Faster when it works. Some drivers refuse it or crash " +
+                    "outright, so it stays off unless you ask. If the app dies while " +
+                    "loading, this turns itself back off.",
+                checked = vm.useGpu,
+                onChange = vm::updateUseGpu
+            )
+            Spacer(Modifier.height(18.dp))
+            Text(
+                when (vm.backend) {
+                    Backend.GPU -> "Currently running on the GPU."
+                    Backend.CPU -> "Currently running on the CPU."
+                    Backend.NONE -> "No model is loaded yet."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+            )
+        }
+    }
+}
+
+@Composable
 private fun AboutPage(vm: ChatViewModel) {
     val scheme = MaterialTheme.colorScheme
     Column(Modifier.fillMaxSize()) {
@@ -444,24 +491,9 @@ private fun AboutPage(vm: ChatViewModel) {
                 color = scheme.onSurfaceVariant.copy(alpha = 0.5f)
             )
             Spacer(Modifier.height(20.dp))
-            LabelledValue("RUNNING ON", when (vm.backend) {
-                Backend.GPU -> "GPU"
-                Backend.CPU -> "CPU — the GPU delegate was refused here"
-                Backend.NONE -> "Nothing loaded yet"
-            })
             LabelledValue("MODEL", vm.spec.label)
             LabelledValue("CONTEXT", "${vm.spec.contextTokens} tokens")
 
-            if (Models.ALL.any { it.reasoning }) {
-                Spacer(Modifier.height(24.dp))
-                ToggleRow(
-                    label = "Think before answering",
-                    detail = "Slower to start, better on anything that needs working " +
-                        "out. Only applies to models that support it.",
-                    checked = vm.thinkingEnabled,
-                    onChange = vm::setThinking
-                )
-            }
         }
     }
 }

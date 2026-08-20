@@ -20,6 +20,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -92,6 +95,22 @@ fun RisesIn(
         enter = fadeIn(tween(Motion.NORMAL)) +
             slideInVertically(tween(Motion.NORMAL, easing = FastOutSlowInEasing)) { it / 12 }
     ) { content() }
+}
+
+/**
+  * Whether the app may buzz. Read by [tap] so a single setting reaches every
+  * button without each one having to be handed the view model.
+  */
+val LocalHaptics = staticCompositionLocalOf { true }
+
+/** A tap buzz, silent when the user has turned haptics off. */
+@Composable
+fun tap(): () -> Unit {
+    val enabled = LocalHaptics.current
+    val haptics = LocalHapticFeedback.current
+    return {
+        if (enabled) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
 }
 
 /** Convenience for the many places that need their own interaction source. */

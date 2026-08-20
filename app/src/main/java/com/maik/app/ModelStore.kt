@@ -10,9 +10,6 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.io.RandomAccessFile
 
-/** Prompt formats differ per family; the bundles ship tokenizers, not templates. */
-enum class Template { CHATML, PHI, DEEPSEEK, ZEPHYR }
-
 /** How the app should be painted. */
 enum class ThemeMode { SYSTEM, DARK, LIGHT }
 
@@ -37,7 +34,6 @@ data class ModelSpec(
     val approxBytes: Long,
     /** Context window the bundle was built with; must match its `ekv` figure. */
     val contextTokens: Int,
-    val template: Template = Template.CHATML,
     /** Emits `<think>` blocks before answering. Parsing copes either way. */
     val reasoning: Boolean = false
 ) {
@@ -55,7 +51,6 @@ object Models {
             "resolve/main/DeepSeek-R1-Distill-Qwen-1.5B_multi-prefill-seq_q8_ekv4096.task",
         approxBytes = 1_834_078_546L,
         contextTokens = 4096,
-        template = Template.DEEPSEEK,
         reasoning = true
     )
 
@@ -67,8 +62,7 @@ object Models {
         url = "https://huggingface.co/litert-community/Phi-4-mini-instruct/" +
             "resolve/main/Phi-4-mini-instruct_multi-prefill-seq_q8_ekv4096.task",
         approxBytes = 3_910_050_199L,
-        contextTokens = 4096,
-        template = Template.PHI
+        contextTokens = 4096
     )
 
     val TINYLLAMA = ModelSpec(
@@ -79,8 +73,7 @@ object Models {
         url = "https://huggingface.co/litert-community/TinyLlama-1.1B-Chat-v1.0/" +
             "resolve/main/TinyLlama-1.1B-Chat-v1.0_multi-prefill-seq_q8_ekv1280.task",
         approxBytes = 1_148_331_545L,
-        contextTokens = 1280,
-        template = Template.ZEPHYR
+        contextTokens = 1280
     )
 
     val ALL = listOf(DEEPSEEK_1_5B, TINYLLAMA, PHI_4_MINI)
@@ -127,11 +120,18 @@ class ModelStore(context: Context) {
     var thinking: Boolean = prefs.getBoolean("thinking", true)
         private set
 
+    var haptics: Boolean = prefs.getBoolean("haptics", true)
+        private set
+
+    /** The GPU delegate can hard-crash on some drivers, so it is opt-in. */
+    var useGpu: Boolean = prefs.getBoolean("gpu", false)
+        private set
+
     // Dark is the design; following the system would hand most users the light
     // scheme on first launch, which is not what maik is drawn for.
     var themeMode: ThemeMode =
-        runCatching { ThemeMode.valueOf(prefs.getString("theme", null) ?: "DARK") }
-            .getOrDefault(ThemeMode.DARK)
+        runCatching { ThemeMode.valueOf(prefs.getString("theme", null) ?: "LIGHT") }
+            .getOrDefault(ThemeMode.LIGHT)
         private set
 
     var systemPrompt: String = prefs.getString("system", DEFAULT_SYSTEM_PROMPT)
@@ -147,6 +147,27 @@ class ModelStore(context: Context) {
         thinking = enabled
         prefs.edit().putBoolean("thinking", enabled).apply()
     }
+
+    fun setHaptics(enabled: Boolean) {
+        haptics = enabled
+        prefs.edit().putBoolean("haptics", enabled).apply()
+    }
+
+    fun setUseGpu(enabled: Boolean) {
+        useGpu = enabled
+        prefs.edit().putBoolean("gpu", enabled).apply()
+    }
+
+    /**
+     * A native crash cannot be caught, so leave a note on disk before risking one
+     * and clear it on success. Finding the note at startup means the last attempt
+     * took the whole process down, and the GPU is not to be trusted here.
+     */
+    fun beginRiskyLoad() = prefs.edit().putBoolean("loading", true).commit()
+
+    fun endRiskyLoad() = prefs.edit().putBoolean("loading", false).commit()
+
+    fun lastLoadCrashed(): Boolean = prefs.getBoolean("loading", false)
 
     fun setThemeMode(mode: ThemeMode) {
         themeMode = mode

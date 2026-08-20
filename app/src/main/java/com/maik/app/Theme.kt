@@ -99,7 +99,7 @@ private val MaikType = Typography(
 )
 
 @Composable
-fun MaikTheme(mode: ThemeMode = ThemeMode.DARK, content: @Composable () -> Unit) {
+fun MaikTheme(mode: ThemeMode = ThemeMode.LIGHT, content: @Composable () -> Unit) {
     val dark = when (mode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.DARK -> true

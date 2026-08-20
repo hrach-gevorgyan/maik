@@ -7,6 +7,7 @@ import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.BeforeClass
@@ -80,21 +81,48 @@ class GoldenTest {
     }
 
     @Test
-    fun theModelAnswersAQuestion() {
-        engine().use { llm ->
-            val options = LlmInferenceSession.LlmInferenceSessionOptions.builder()
-                .setTemperature(0.2f)
-                .setTopK(20)
-                .build()
+    fun theModelAnswersTheQuestionItWasAsked() {
+        // Not just "did it say something": 1.4.x returned fluent text that ignored
+        // the question entirely, because the prompt was being templated twice.
+        val reply = ask("What is the capital of France? Answer in one word.")
+        assertTrue(
+            "the model returned nothing at all",
+            reply.isNotBlank()
+        )
+        assertTrue(
+            "the answer ignored the question entirely: $reply",
+            reply.contains("paris", ignoreCase = true)
+        )
+    }
 
-            val reply = LlmInferenceSession.createFromOptions(llm, options).use { session ->
-                session.addQueryChunk(
-                    "<|im_start|>user\nName one colour.<|im_end|>\n<|im_start|>assistant\n"
-                )
-                session.generateResponse()
-            }
+    @Test
+    fun theReplyIsCleanTextRatherThanTokeniserDebris() {
+        val reply = ask("Say hello.")
 
-            assertTrue("the model returned nothing at all", reply.isNotBlank())
+        // 'Ġ' is byte-level BPE debris. It surfaces when a model is fed markup it
+        // was not trained on — the exact symptom of double-templating.
+        assertFalse("byte-level tokeniser debris in the reply: $reply", reply.contains("Ġ"))
+        assertFalse("raw control tokens leaked into the reply: $reply", reply.contains("<|"))
+        assertFalse("chat markup leaked into the reply: $reply", reply.contains("<｜"))
+    }
+
+    @Test
+    fun promptsAreSentAsPlainTextWithNoTemplateOfOurOwn() {
+        // The bundle carries its own template and the engine applies it. Anything we
+        // add on top is what broke 1.1.0 through 1.4.1.
+        val reply = ask("Name one colour.")
+        assertTrue("plain text produced no reply", reply.isNotBlank())
+    }
+
+    /** One question, one fresh session, raw text — exactly how the app asks. */
+    private fun ask(question: String): String = engine().use { llm ->
+        val options = LlmInferenceSession.LlmInferenceSessionOptions.builder()
+            .setTemperature(0.1f)
+            .setTopK(10)
+            .build()
+        LlmInferenceSession.createFromOptions(llm, options).use { session ->
+            session.addQueryChunk(question)
+            session.generateResponse()
         }
     }
 
