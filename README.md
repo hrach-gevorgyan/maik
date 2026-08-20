@@ -2,24 +2,44 @@
 
 # maik.
 
-**A chat app whose model lives on your phone.**
+### The model lives on your phone. Not on someone's server.
 
-No account. No API key. No server. Turn on airplane mode — it still answers.
+Turn on airplane mode. Ask it something. It answers.
 
-<sub>Kotlin · Jetpack Compose · MediaPipe LiteRT</sub>
+<br>
+
+![Android](https://img.shields.io/badge/Android-8.0%2B-08080B?style=for-the-badge&labelColor=08080B&color=D8FF3E)
+![Kotlin](https://img.shields.io/badge/Kotlin-2.0-08080B?style=for-the-badge&labelColor=08080B&color=D8FF3E)
+![Compose](https://img.shields.io/badge/Jetpack%20Compose-08080B?style=for-the-badge&labelColor=08080B&color=D8FF3E)
+![Offline](https://img.shields.io/badge/100%25%20Offline-08080B?style=for-the-badge&labelColor=08080B&color=D8FF3E)
+
+**[Download the APK](dist/maik-debug.apk)** · [Build it](#build-it) · [Why not Gemini Nano](#-read-this-if-you-came-here-for-gemini-nano)
 
 </div>
+
+<br>
+
+```
+  no account          no api key          no telemetry
+  no rate limit       no server           no subscription
+```
+
+<br>
+
+Most "AI chat" apps are a text box wired to somebody else's GPU. `maik` isn't.
+The weights sit in your app's private storage, inference runs on your silicon, and
+the only network request the app will ever make is the one that fetched the model.
 
 ---
 
 ## ⚠️ READ THIS IF YOU CAME HERE FOR GEMINI NANO
 
-**THE GALAXY S24 CANNOT RUN GEMINI NANO IN THIRD-PARTY APPS. GOOGLE'S OWN
-DOCUMENTATION SAID IT COULD. THAT LIST WAS QUIETLY CHANGED.**
+> **THE GALAXY S24 CANNOT RUN GEMINI NANO IN THIRD-PARTY APPS.**
+> **GOOGLE'S OWN DOCUMENTATION SAID IT COULD. THAT LIST WAS QUIETLY CHANGED.**
 
-`maik` started out on the Google AI Edge SDK (`com.google.ai.edge.aicore`), which
-borrows the Gemini Nano already sitting inside Android's **AICore** system
-service. On a Galaxy S24 Ultra, every call dies with:
+`maik` began on the Google AI Edge SDK (`com.google.ai.edge.aicore`), which borrows
+the Gemini Nano already sitting inside Android's **AICore** system service. On a
+Galaxy S24 Ultra, every single call dies with this:
 
 ```
 com.google.ai.edge.aicore.UnknownException:
@@ -27,63 +47,71 @@ AICore failed with error type 2-INFERENCE_ERROR and error code 8-NOT_AVAILABLE:
 Required LLM feature not found
 ```
 
-Here is what that actually means, and why no amount of updating will fix it:
+What that actually means, and why no update will ever fix it:
 
-- Your S24 **does** run Gemini Nano. That is what powers Samsung's Galaxy AI
-  features. It is simply **not exposed to apps that aren't Samsung's or Google's.**
-- Google's supported-device list **originally included the Galaxy S24 series.** It
-  was later narrowed to Pixel 9. A developer on Google's own forum reported buying
-  an S24 specifically because of that list, hit this exact error, and
-  [received no reply](https://discuss.ai.google.dev/t/google-ai-edge-sdk-supported-android-devices/67403).
-- It is not even reliable on Pixels. The same error is filed against **Google's own
-  sample app** by a user on a **Pixel 9 Pro** —
-  [android/ai-samples#24](https://github.com/android/ai-samples/issues/24) — closed,
-  no fix.
-- **There is no workaround.** No adb flag, no allowlist, no beta channel, no
-  Play Store update. The capability is gated server-side, per device.
+- **Your S24 does run Gemini Nano.** It's what powers Samsung's Galaxy AI. It is
+  simply not exposed to apps that aren't Samsung's or Google's.
+- **The device list originally included the Galaxy S24 series**, then narrowed to
+  Pixel 9. A developer on Google's own forum bought an S24 *because of that list*,
+  hit this exact error, and [got no reply](https://discuss.ai.google.dev/t/google-ai-edge-sdk-supported-android-devices/67403).
+- **It isn't even reliable on Pixels.** The same error is filed against **Google's
+  own sample app** by a user on a **Pixel 9 Pro** —
+  [android/ai-samples#24](https://github.com/android/ai-samples/issues/24). Closed.
+  No fix.
+- **There is no workaround.** No adb flag. No allowlist. No beta channel. No Play
+  Store update. The capability is gated server-side, per device, at Google's
+  discretion.
 
-**SO MAIK NO LONGER USES GEMINI NANO AT ALL.** It brings its own model instead.
-That model is yours, it works on your phone, and no one can revoke it from a
-dashboard.
+**So maik doesn't use Gemini Nano at all anymore.** It brings its own model. That
+model is yours, it runs on your phone, and nobody can revoke it from a dashboard.
 
 ---
 
-## How it works now
+## How it works
 
-`maik` runs a **LiteRT** model through **MediaPipe LLM Inference**, entirely in your
-app's own process. Same promise as Nano — nothing leaves the device — minus the
-dependency on Google deciding your phone qualifies.
+A **LiteRT** model running through **MediaPipe LLM Inference**, entirely inside the
+app's own process. Same promise Nano made — nothing leaves the device — minus the
+part where Google decides whether your phone qualifies.
 
-On first launch it fetches the model once (**~521 MB**, one time, Wi-Fi
-recommended) and stores it in app-private storage. After that the network is
-never touched again. The `INTERNET` permission exists for that single download and
-nothing else.
+First launch fetches the weights once and parks them in app-private storage. After
+that the radio is never touched again. The `INTERNET` permission exists for that
+one download and nothing else.
 
-| | |
-|---|---|
-| **Default model** | Qwen2.5 0.5B Instruct, int8 — ungated, Apache 2.0, no token needed |
-| **Runtime** | `com.google.mediapipe:tasks-genai` |
-| **Works on** | Any Android 8.0+ phone. Yes, including your S24 Ultra. |
+<table>
+<tr><td><b>Default model</b></td><td>Qwen2.5 0.5B Instruct · int8 · Apache 2.0</td></tr>
+<tr><td><b>Download</b></td><td>~521 MB, once, no token, no license gate</td></tr>
+<tr><td><b>Runtime</b></td><td><code>com.google.mediapipe:tasks-genai</code></td></tr>
+<tr><td><b>Runs on</b></td><td>Any Android 8.0+ phone. Yes, including your S24 Ultra.</td></tr>
+</table>
 
-Want something sharper? `Models.DEFAULT` in
-[`ModelStore.kt`](app/src/main/java/com/maik/app/ModelStore.kt) also has
-**Qwen2.5 1.5B** (~1.5 GB) wired up — change one line.
+**Want it sharper?** [`ModelStore.kt`](app/src/main/java/com/maik/app/ModelStore.kt)
+also has **Qwen2.5 1.5B** (~1.5 GB) wired up — change `Models.DEFAULT`, one line.
 
-Gemma 3 1B is the better model at this size, but its Hugging Face repo is **gated**,
-which would force every user through a sign-in and a license click before the app
-could download anything. Not worth it for a chat toy. If you want it anyway, point
-`ModelSpec.url` at the Gemma `.task` and add an `Authorization: Bearer <hf_token>`
-header in `ModelStore.download()`.
+<details>
+<summary><b>Why not Gemma 3 1B, which is better at this size?</b></summary>
+
+<br>
+
+Because its Hugging Face repo is **gated** (`gated: auto`). Every user would have to
+create an account, accept a license, and mint a token before the app could download
+anything. That's a terrible first-run experience for a chat toy.
+
+If you want it anyway: point `ModelSpec.url` at the Gemma `.task` bundle and add an
+`Authorization: Bearer <hf_token>` header inside `ModelStore.download()`.
+
+</details>
+
+---
 
 ## Download
 
-Prebuilt APK: **[`dist/maik-debug.apk`](dist/maik-debug.apk)** (~57 MB — the model is
-*not* bundled, it downloads on first run).
+**[`dist/maik-debug.apk`](dist/maik-debug.apk)** — ~57 MB. The model is *not*
+bundled; it streams down on first run.
 
-It's **debug-signed**: fine for sideloading, useless for the Play Store. Enable
-"install unknown apps" for whatever you open it from.
+Debug-signed: perfect for sideloading, useless for the Play Store. You'll need
+"install unknown apps" enabled for whatever you open it from.
 
-## Build it yourself
+## Build it
 
 ```bash
 git clone https://github.com/hrach-gevorgyan/maik.git
@@ -92,52 +120,68 @@ cd maik
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Or open the folder in Android Studio and hit Run.
+Or open the folder in Android Studio and press Run.
 
-## Look
+---
 
-A deliberately narrow design: near-black, bone white, one acid accent — and
-**HK Grotesk** (Hanken Grotesk) everywhere, shipped as one variable font and
-instanced per weight rather than bundled six times over.
+## The look
 
-| | |
-|---|---|
-| **Wordmark** | `maik.` — text only, 800 weight, tight negative tracking |
-| **Palette** | `#08080B` ink · `#EDEDF2` bone · `#D8FF3E` acid |
-| **Type** | HK Grotesk 300–800, one 130 KB variable file |
-| **Motion** | Pulsing on-device dot, staggered typing dots, animated send state |
+Near-black, bone white, and exactly one acid accent. **HK Grotesk** everywhere —
+shipped as a single variable font and instanced per weight, not bundled six times
+over.
+
+<table>
+<tr><td><b>Wordmark</b></td><td><code>maik.</code> — text only, 800 weight, tight negative tracking</td></tr>
+<tr><td><b>Palette</b></td><td><code>#08080B</code> ink · <code>#EDEDF2</code> bone · <code>#D8FF3E</code> acid</td></tr>
+<tr><td><b>Type</b></td><td>HK Grotesk 300–800 from one 130 KB file</td></tr>
+<tr><td><b>Motion</b></td><td>Pulsing on-device dot · staggered typing dots · animated send state</td></tr>
+</table>
+
+No gradients. No glassmorphism. No purple.
+
+---
 
 ## Layout
 
 ```
 app/src/main/java/com/maik/app/
-├── MainActivity.kt    — Compose UI: setup screen, bubbles, typing dots, composer
-├── ChatViewModel.kt   — stage machine, model lifecycle, prompt assembly
-├── ModelStore.kt      — model catalog + resumable-safe download
-└── Theme.kt           — palette + HK Grotesk type scale
+├── MainActivity.kt    Compose UI — setup screen, bubbles, typing dots, composer
+├── ChatViewModel.kt   stage machine, model lifecycle, prompt assembly
+├── ModelStore.kt      model catalog + a download that can't half-succeed
+└── Theme.kt           palette + HK Grotesk type scale
 ```
 
-Two things worth knowing if you fork this:
+Two things worth knowing before you fork it:
 
-**The model is stateless between turns.** A fresh `LlmInferenceSession` is created
-per message and the whole transcript is replayed, so `clear` genuinely clears and
-context never leaks between conversations. Fine for short chats; long ones will hit
-the 1280-token window, so start summarizing or windowing.
+**The model is stateless between turns.** A fresh `LlmInferenceSession` per message,
+with the transcript replayed each time — so `clear` genuinely clears and context
+never bleeds between conversations. Fine for short chats; long ones will hit the
+1280-token window, so start summarizing or windowing.
 
-**Downloads land in a `.part` file** and are only renamed on success — an
-interrupted download can never masquerade as a working model. If the bundle fails
-to load anyway, it's deleted so the next attempt refetches cleanly.
+**Downloads land in a `.part` file** and are renamed only on success. A dropped
+connection can never leave behind something that *looks* like a working model. If
+the bundle fails to load anyway, it's deleted, so the retry refetches clean.
+
+---
 
 ## Requirements
 
 - Android **8.0 (API 26)** or newer
 - ~600 MB free storage
 - Android Studio Ladybug+ / JDK 17+
-- **No special hardware, no allowlist, no AICore**
+- **No special hardware. No allowlist. No AICore.**
 
-## Credits
+---
 
-Type is [Hanken Grotesk](https://github.com/hanken-design/HK-Grotesk) by Hanken
-Design Co., SIL Open Font License 1.1.
-Model is [Qwen2.5-0.5B-Instruct](https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct),
-Apache 2.0, converted to LiteRT by the litert-community.
+<div align="center">
+
+<sub>
+
+Type: [Hanken Grotesk](https://github.com/hanken-design/HK-Grotesk) · Hanken Design Co. · SIL OFL 1.1<br>
+Model: [Qwen2.5-0.5B-Instruct](https://huggingface.co/litert-community/Qwen2.5-0.5B-Instruct) · Apache 2.0 · LiteRT conversion by litert-community
+
+**maik.**
+
+</sub>
+
+</div>
