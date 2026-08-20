@@ -7,6 +7,19 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 1.0.1 — 20 August 2026
+
+**Fixes the 1.0.0 download, which could not be installed.** The release build was
+published without a signature, and Android refuses unsigned APKs outright. Releases
+are now signed — properly when a keystore is configured, otherwise with a debug key
+— and the workflow checks for a signature before publishing rather than shipping a
+file nobody can open.
+
+If you already have maik installed from an earlier build, uninstall it first: this
+one is signed with a different key.
+
+---
+
 ## 1.0.0 — 20 August 2026
 
 The first release worth installing.

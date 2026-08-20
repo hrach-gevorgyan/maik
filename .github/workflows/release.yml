@@ -54,9 +54,12 @@ jobs:
             echo "signed=true" >> "$GITHUB_OUTPUT"
           else
             echo "signed=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No KEYSTORE_BASE64 secret — the APK will be unsigned."
+            echo "::warning::No KEYSTORE_BASE64 secret — falling back to a debug-signed build."
           fi
 
+      # An unsigned APK cannot be installed on any Android device, so without a
+      # keystore we ship the debug variant instead: at least it carries a
+      # signature, using the throwaway key Gradle generates on the runner.
       - name: Build the APK
         env:
           MAIK_KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
@@ -64,19 +67,40 @@ jobs:
           MAIK_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           MAIK_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          ./gradlew assembleRelease \
+          if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then
+            TASK=assembleRelease
+          else
+            TASK=assembleDebug
+          fi
+          ./gradlew $TASK \
             -PmaikVersionName=${{ steps.version.outputs.name }} \
             -PmaikVersionCode=${{ steps.version.outputs.code }} \
             --no-daemon
 
-      - name: Name the artifact
+      - name: Name the artifact, and refuse to ship it unsigned
         id: apk
         run: |
-          SRC=$(find app/build/outputs/apk/release -name "*.apk" | head -1)
+          if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then
+            SRC=$(find app/build/outputs/apk/release -name "*.apk" ! -name "*unsigned*" | head -1)
+          else
+            SRC=$(find app/build/outputs/apk/debug -name "*.apk" | head -1)
+          fi
+
+          if [ -z "$SRC" ]; then
+            echo "::error::No installable APK was produced."
+            exit 1
+          fi
+
+          # A signed APK always carries a signature block in META-INF. Publishing
+          # one without it means handing users a file their phone will reject.
+          if ! unzip -l "$SRC" | grep -qE 'META-INF/.*[.](RSA|DSA|EC)'; then
+            echo "::error::$SRC is unsigned and could not be installed. Refusing to publish."
+            exit 1
+          fi
+
           DEST="maik-${{ steps.version.outputs.name }}.apk"
           cp "$SRC" "$DEST"
           echo "path=$DEST" >> "$GITHUB_OUTPUT"
-          echo "size=$(( $(stat -c%s "$DEST") / 1024 / 1024 )) MB" >> "$GITHUB_OUTPUT"
 
       - name: Pull this version's notes out of the changelog
         id: notes
@@ -95,12 +119,12 @@ jobs:
 
           if [ "${{ steps.keystore.outputs.signed }}" != "true" ]; then
             {
-              echo ""
-              echo "---"
-              echo ""
-              echo "> **This APK is unsigned.** Add \`KEYSTORE_BASE64\`, \`KEYSTORE_PASSWORD\`,"
-              echo "> \`KEY_ALIAS\` and \`KEY_PASSWORD\` to the repository secrets to get"
-              echo "> signed builds that can be installed as upgrades."
+              printf '\n---\n\n'
+              printf '> **Debug-signed build.** It installs and runs normally, but every\n'
+              printf '> release is signed with a different throwaway key, so uninstall the\n'
+              printf '> previous version before installing this one.\n>\n'
+              printf '> Add the keystore secrets described in the README for proper signed\n'
+              printf '> releases that install as upgrades.\n'
             } >> notes.md
           fi
 
