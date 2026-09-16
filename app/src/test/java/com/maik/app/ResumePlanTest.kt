@@ -1,6 +1,7 @@
 package com.maik.app
 
 import com.maik.app.data.ResumePlan
+import com.maik.app.data.ResumePlan.Outcome
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -41,5 +42,47 @@ class ResumePlanTest {
         val have = 500L
         val plan = ResumePlan.of(have, responseCode = 206, contentLength = -1, expectedTotal = size)
         assertEquals(size, plan.total)
+    }
+
+    @Test
+    fun `a 416 on a complete partial means it is already downloaded`() {
+        assertEquals(Outcome.AlreadyComplete, ResumePlan.decide(size, 416, -1, size, null))
+    }
+
+    @Test
+    fun `a 416 on an oversized partial starts again`() {
+        assertEquals(Outcome.RestartFromZero, ResumePlan.decide(size + 10, 416, -1, size, null))
+    }
+
+    @Test
+    fun `a 206 from the wrong offset would splice files, so start again`() {
+        assertEquals(Outcome.RestartFromZero, ResumePlan.decide(100, 206, size - 100, size, 0))
+    }
+
+    @Test
+    fun `a 206 from the right offset continues`() {
+        assertEquals(Outcome.Copy(100, size, resuming = true), ResumePlan.decide(100, 206, size - 100, size, 100))
+    }
+
+    @Test
+    fun `a 206 for a fresh download is a plain copy`() {
+        assertEquals(Outcome.Copy(0, size, resuming = false), ResumePlan.decide(0, 206, size, size, 0))
+    }
+
+    @Test
+    fun `a 200 ignores the partial and copies from zero`() {
+        assertEquals(Outcome.Copy(0, size, resuming = false), ResumePlan.decide(100, 200, -1, size, null))
+    }
+
+    @Test
+    fun `a partial bigger than the model is never continued`() {
+        assertEquals(Outcome.RestartFromZero, ResumePlan.decide(size + 1, 206, 5, size, size + 1))
+    }
+
+    @Test
+    fun `content range start is parsed or null`() {
+        assertEquals(100L, ResumePlan.parseContentRangeStart("bytes 100-199/200"))
+        assertEquals(null, ResumePlan.parseContentRangeStart("bytes */200"))
+        assertEquals(null, ResumePlan.parseContentRangeStart(null))
     }
 }

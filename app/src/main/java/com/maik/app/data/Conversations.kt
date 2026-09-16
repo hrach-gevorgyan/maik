@@ -78,7 +78,7 @@ class ChatStore(context: Context) {
         } catch (_: Exception) {
             // Set the unreadable file aside rather than overwrite it with an empty list
             // on the next save: the chats may still be recoverable.
-            runCatching { file.renameTo(File(file.parentFile, "conversations.corrupt.json")) }
+            runCatching { file.renameTo(File(file.parentFile, "conversations.corrupt-${System.currentTimeMillis()}.json")) }
             emptyList()
         }
     }

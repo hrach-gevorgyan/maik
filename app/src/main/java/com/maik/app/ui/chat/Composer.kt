@@ -43,8 +43,8 @@ internal fun Composer(
     onStop: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
-    val enabled = !busy && ready
-    val canSend = value.isNotBlank() && enabled
+    // Typing is always allowed, so a question can be ready by the time the model is.
+    val canSend = value.isNotBlank() && !busy && ready
 
     Row(
         Modifier
@@ -75,7 +75,7 @@ internal fun Composer(
             BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
-                enabled = enabled,
+                enabled = true,
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
                 cursorBrush = SolidColor(scheme.primary),
                 maxLines = 5,

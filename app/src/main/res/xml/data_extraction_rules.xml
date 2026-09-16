@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Chats and settings are backed up; multi-gigabyte models are downloaded again. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="models/" />
+        <exclude domain="file" path="litertlm-cache/" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="models/" />
+        <exclude domain="file" path="litertlm-cache/" />
+    </device-transfer>
+</data-extraction-rules>

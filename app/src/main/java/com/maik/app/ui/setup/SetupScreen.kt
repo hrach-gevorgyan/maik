@@ -48,14 +48,24 @@ fun SetupScreen(vm: ChatViewModel) {
 
     val notifications = notificationRequester()
 
+    // Whatever starts a download — first fetch, continue, download again — waits here
+    // until the mobile-data warning and the notification explainer have had their say.
+    var pending by remember { mutableStateOf<(() -> Unit)?>(null) }
+
     fun startNow() {
-        vm.startDownload()
+        pending?.invoke()
+        pending = null
     }
 
     // Android's own permission box says nothing about why. Explain first, in our
     // words, then ask — and only at the moment a download is actually starting.
     fun begin() {
         if (notifications == null) startNow() else explainNotifications = true
+    }
+
+    fun guardedStart(action: () -> Unit) {
+        pending = action
+        if (vm.onMeteredNetwork()) warnMetered = true else begin()
     }
 
     Column(
@@ -83,7 +93,7 @@ fun SetupScreen(vm: ChatViewModel) {
                     SpecRow("AFTER", "Fully offline")
                     Spacer(Modifier.height(26.dp))
                     BigButton("Download ${spec.label}") {
-                        if (vm.onMeteredNetwork()) warnMetered = true else begin()
+                        guardedStart(vm::startDownload)
                     }
                     Spacer(Modifier.height(12.dp))
                     Text(
@@ -149,7 +159,11 @@ fun SetupScreen(vm: ChatViewModel) {
             }
 
             is Stage.Broken -> RisesIn(key = s.summary) {
-                BrokenState(vm, s, onRefetch = ::begin)
+                BrokenState(
+                    vm, s,
+                    onRefetch = { guardedStart(vm::startDownload) },
+                    onRedownload = { guardedStart(vm::retry) }
+                )
             }
 
             is Stage.Ready -> RisesIn(key = "ready") {
@@ -174,7 +188,7 @@ fun SetupScreen(vm: ChatViewModel) {
 
         if (vm.stage !is Stage.Ready) {
             Spacer(Modifier.height(24.dp))
-            QuietAction(if (vm.conversations.isEmpty()) "Not now" else "Back", vm::openList)
+            QuietAction(if (vm.conversations.isEmpty()) "Not now" else "Back", vm::back)
         }
     }
 
@@ -182,7 +196,7 @@ fun SetupScreen(vm: ChatViewModel) {
         AlertDialog(
             onDismissRequest = {
                 explainNotifications = false
-                startNow()
+                pending = null
             },
             containerColor = scheme.surfaceVariant,
             title = { DialogTitle("Show download progress?") },
@@ -214,7 +228,10 @@ fun SetupScreen(vm: ChatViewModel) {
 
     if (warnMetered) {
         AlertDialog(
-            onDismissRequest = { warnMetered = false },
+            onDismissRequest = {
+                warnMetered = false
+                pending = null
+            },
             containerColor = scheme.surfaceVariant,
             title = { DialogTitle("You are not on Wi-Fi") },
             text = {
@@ -232,7 +249,10 @@ fun SetupScreen(vm: ChatViewModel) {
                 }) { Text("Download anyway", color = scheme.error) }
             },
             dismissButton = {
-                TextButton(onClick = { warnMetered = false }) {
+                TextButton(onClick = {
+                    warnMetered = false
+                    pending = null
+                }) {
                     Text("Wait for Wi-Fi", color = scheme.primary)
                 }
             }
@@ -241,7 +261,7 @@ fun SetupScreen(vm: ChatViewModel) {
 }
 
 @Composable
-private fun BrokenState(vm: ChatViewModel, stage: Stage.Broken, onRefetch: () -> Unit) {
+private fun BrokenState(vm: ChatViewModel, stage: Stage.Broken, onRefetch: () -> Unit, onRedownload: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     var showDetail by remember { mutableStateOf(false) }
 
@@ -284,7 +304,7 @@ private fun BrokenState(vm: ChatViewModel, stage: Stage.Broken, onRefetch: () ->
         Spacer(Modifier.height(26.dp))
         when (stage.fix) {
             Fix.RESUME_DOWNLOAD -> BigButton("Continue download", onClick = onRefetch)
-            Fix.REDOWNLOAD -> BigButton("Download again", onClick = vm::retry)
+            Fix.REDOWNLOAD -> BigButton("Download again", onClick = onRedownload)
             Fix.RETRY_LOAD -> BigButton("Try again", onClick = vm::retry)
         }
         Spacer(Modifier.height(12.dp))

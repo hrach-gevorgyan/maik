@@ -4,6 +4,7 @@ import com.maik.app.data.*
 import com.maik.app.engine.*
 import com.maik.app.ui.chat.*
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -104,5 +105,14 @@ class ModelCatalogTest {
     @Test
     fun `the default is one of the offered models`() {
         assertTrue(Models.DEFAULT in Models.ALL)
+    }
+
+    @Test
+    fun `every download is pinned to a commit and has a checksum`() {
+        Models.ALL.forEach { spec ->
+            assertFalse("${spec.id} follows a moving branch", spec.url.contains("/resolve/main/"))
+            assertTrue("${spec.id} is not pinned", Regex("/resolve/[0-9a-f]{40}/").containsMatchIn(spec.url))
+            assertTrue("${spec.id} has no sha256", Regex("^[0-9a-f]{64}$").matches(spec.sha256))
+        }
     }
 }

@@ -10,6 +10,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.After
 import org.junit.Test
 
 /**
@@ -18,10 +19,18 @@ import org.junit.Test
  */
 class DownloadBusTest {
 
+    @After
+    fun reset() {
+        DownloadBus.running.value = false
+        DownloadBus.modelId.value = null
+        DownloadBus.progress.value = null
+    }
+
     @Test
     fun `a finished download is not replayed to a screen that arrives later`() = runBlocking {
         DownloadBus.events.tryEmit(Download.Done(File("model.litertlm"), "gemma-4-e2b-it"))
 
+        assertEquals(0, DownloadBus.events.replayCache.size)
         val late = withTimeoutOrNull(200) { DownloadBus.events.first() }
         assertNull("a stale event reached a new collector", late)
     }

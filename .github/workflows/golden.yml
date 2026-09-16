@@ -12,6 +12,9 @@ on:
   workflow_dispatch:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   golden:
     runs-on: ubuntu-latest
@@ -27,9 +30,9 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # Cheap and fast: fail before booting an emulator if a model URL has gone bad.
-      - name: Verify every offered model
-        run: python tools/verify_models.py
+      # Compile before the emulator boots, so its time limit is spent on the test.
+      - name: Build the app and the test
+        run: ./gradlew assembleDebug assembleDebugAndroidTest --no-daemon
 
       # The emulator needs hardware acceleration to be usable at all.
       - name: Enable KVM

@@ -70,4 +70,21 @@ class MarkdownTest {
         val blocks = parseMarkdown("```\nstill streaming")
         assertEquals("still streaming", (blocks.single() as Block.Code).text)
     }
+
+    @Test
+    fun `deep headings keep their text without extra hashes`() {
+        assertEquals(listOf(Block.Heading("Five", 3)), parseMarkdown("##### Five"))
+    }
+
+    @Test
+    fun `a hash without a space is not a heading`() {
+        assertEquals(listOf(Block.Paragraph("#1 priority")), parseMarkdown("#1 priority"))
+        assertEquals(listOf(Block.Paragraph("#")), parseMarkdown("#"))
+    }
+
+    @Test
+    fun `numbers that look like list markers stay prose`() {
+        assertEquals(listOf(Block.Paragraph("-1 degrees")), parseMarkdown("-1 degrees"))
+        assertTrue(parseMarkdown("1.5 litres").none { it is Block.Bullet })
+    }
 }

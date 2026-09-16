@@ -7,6 +7,57 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 2.0.0 — 17 September 2026
+
+**A solid base.** Everything from 1.7 to 1.9 — one warm engine, the GPU on capable
+Snapdragons, resumable downloads, the chat that stays on screen — plus a full audit of
+the ways it could still go wrong.
+
+### Fixed
+
+- **No more crashes when you act mid-reply.** Editing the instructions, deleting the
+  open chat, or leaving the app while maik was answering could close the model's
+  conversation while it was still writing. It now stops, waits, then closes.
+- **Asking again after Stop works.** A stopped reply could leave maik stuck on "answering"
+  forever for the next question.
+- **Stop keeps every word.** The last fraction of a second of a stopped reply used to
+  be lost.
+- **New chats use a model you actually have.** Downloading only LFM2.5 used to leave new
+  chats asking you to download Gemma.
+- **Switching the GPU while a model loads** no longer leaves the app saying Ready with
+  nothing loaded.
+- **Deleting a model during another model's load** can no longer unload the new one.
+- **Downloads can't corrupt themselves.** Each model is pinned to an exact Hugging Face
+  commit and checked against its SHA-256 before it's used, so a resumed download can
+  never stitch two different files together. A download that was already complete no
+  longer fails forever with "server answered 416".
+- **A download for one model no longer hijacks a chat using another**, and starting a
+  second download while one runs tells you instead of silently doing nothing.
+- **Closing the "Show download progress?" box** no longer starts a 2.6 GB download.
+- **"Continue" and "Download again" warn about mobile data** like the first download does.
+- **Back from a download or settings returns to your chat**, not the chat list.
+- **Rotating the phone** keeps what you were typing and no longer jumps to the download.
+- **Android 15's download time limit** stops the download cleanly with a message; retry
+  picks up where it stopped.
+- Headings like `##### Five` lost their text; `#1 priority` became a heading.
+- Error bubbles were dark red blocks in the light theme.
+- The storage figure now counts partial downloads and the runtime's cache.
+- The "ON-DEVICE" dot pulses a few times and then rests instead of animating forever.
+
+### Changed
+
+- You can type while the model is still loading; Send waits until it's ready.
+- Chats and settings are included in Android backup; model files are not.
+
+### Under the hood
+
+- 66 unit tests (was 40): download routing, resume decisions, stream copying, back
+  navigation, model pinning, markdown edge cases.
+- Releases check the version tag in seconds before the emulator gate, and refuse to
+  publish without a changelog entry.
+
+---
+
 ## 1.9.0 — 17 September 2026
 
 **The chat stays on screen.**

@@ -65,10 +65,21 @@ class DownloadService : Service() {
             stopEverything()
             return START_NOT_STICKY
         }
-        if (job?.isActive == true) return START_REDELIVER_INTENT
+        val requested = intent?.getStringExtra(EXTRA_MODEL_ID)
+        if (requested == null || Models.ALL.none { it.id == requested }) {
+            if (job?.isActive != true) stopSelf(startId)
+            return START_NOT_STICKY
+        }
+        if (job?.isActive == true) {
+            // One download at a time; say so instead of silently ignoring the second.
+            if (requested != DownloadBus.modelId.value) {
+                DownloadBus.events.tryEmit(Download.Failed(requested, "Another model is already downloading."))
+            }
+            return START_NOT_STICKY
+        }
 
         val store = ModelStore(applicationContext)
-        val spec = Models.byId(intent?.getStringExtra(EXTRA_MODEL_ID) ?: store.spec.id)
+        val spec = Models.byId(requested)
 
         createChannel()
         startForeground(NOTIFICATION_ID, buildNotification(spec.label, 0, 0, indeterminate = true))
@@ -101,7 +112,19 @@ class DownloadService : Service() {
         job?.cancel()
         DownloadBus.running.value = false
         DownloadBus.progress.value = null
-        DownloadBus.events.tryEmit(Download.Failed("Cancelled", cancelled = true))
+        DownloadBus.events.tryEmit(Download.Failed(DownloadBus.modelId.value ?: "", "Cancelled", cancelled = true))
+        stopSelf()
+    }
+
+    /** Android 15 caps dataSync services; stop cleanly and let the user continue later. */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        job?.cancel()
+        DownloadBus.running.value = false
+        DownloadBus.progress.value = null
+        DownloadBus.events.tryEmit(
+            Download.Failed(DownloadBus.modelId.value ?: "", "Android paused the download. Retry to continue.")
+        )
+        stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
 
@@ -140,7 +163,7 @@ class DownloadService : Service() {
         val open = PendingIntent.getActivity(
             this,
             0,
-            Intent(this, MainActivity::class.java),
+            Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_OPEN, MainActivity.OPEN_DOWNLOAD),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val cancel = PendingIntent.getService(
@@ -172,13 +195,20 @@ class DownloadService : Service() {
         const val ACTION_CANCEL = "com.maik.app.CANCEL_DOWNLOAD"
         private const val EXTRA_MODEL_ID = "model_id"
 
-        fun start(context: Context, modelId: String? = null) {
+        fun start(context: Context, modelId: String) {
             val intent = Intent(context, DownloadService::class.java)
                 .putExtra(EXTRA_MODEL_ID, modelId)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: IllegalStateException) {
+                // Includes ForegroundServiceStartNotAllowedException.
+                DownloadBus.events.tryEmit(
+                    Download.Failed(modelId, "Android won't allow a download right now. Try again in a moment.")
+                )
             }
         }
     }

@@ -1,5 +1,6 @@
 package com.maik.app.ui.chat
 
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -39,7 +40,7 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun ChatScreen(vm: ChatViewModel) {
     val convo = vm.current ?: return
-    var input by remember { mutableStateOf("") }
+    var input by rememberSaveable(convo.id) { mutableStateOf("") }
     val listState = rememberLazyListState()
     val buzz = tap()
     val count = convo.messages.size
@@ -257,7 +258,7 @@ private fun StatusStrip(vm: ChatViewModel, model: ModelSpec) {
                         when (stage.fix) {
                             Fix.RETRY_LOAD -> StripAction("Try again", vm::retry)
                             Fix.RESUME_DOWNLOAD -> StripAction("Continue download") { vm.openDownload(vm.target) }
-                            Fix.REDOWNLOAD -> StripAction("Download again", vm::retry)
+                            Fix.REDOWNLOAD -> StripAction("Download again") { vm.openDownload(vm.target) }
                         }
                         if (vm.useGpu && stage.fix == Fix.RETRY_LOAD) {
                             StripAction("Use CPU instead") { vm.updateUseGpu(false) }

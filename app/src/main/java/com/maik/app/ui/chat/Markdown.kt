@@ -81,10 +81,10 @@ fun parseMarkdown(source: String): List<Block> {
                 blocks += Block.Code(code.toString().trimEnd('\n'), language)
             }
 
-            trimmed.startsWith("#") -> {
+            HEADING.matches(trimmed) -> {
                 flush()
-                val level = trimmed.takeWhile { it == '#' }.length.coerceAtMost(3)
-                blocks += Block.Heading(trimmed.drop(level).trim(), level)
+                val (hashes, text) = HEADING.matchEntire(trimmed)!!.destructured
+                blocks += Block.Heading(text.trim(), hashes.length.coerceAtMost(3))
             }
 
             trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
@@ -110,6 +110,9 @@ fun parseMarkdown(source: String): List<Block> {
     flush()
     return blocks
 }
+
+/** "## Title" — a space after the hashes, so "#1 priority" stays a sentence. */
+private val HEADING = Regex("^(#{1,6})\\s+(.*)$")
 
 private val ORDERED = Regex("^\\d+[.)] .*")
 

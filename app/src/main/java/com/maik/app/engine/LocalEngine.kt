@@ -80,6 +80,9 @@ object LocalEngine {
 
     suspend fun close() = withContext(lifecycle) { closeNow() }
 
+    /** Closes the engine only if [id] is what's loaded, so a newer model is left alone. */
+    suspend fun unload(id: String) = withContext(lifecycle) { if (loadedId == id) closeNow() }
+
     private fun closeNow() {
         runCatching { engine?.close() }
         engine = null
@@ -121,9 +124,14 @@ object LocalEngine {
             val gpu = build(LmBackend.GPU())
             store.endRiskyLoad()
             Pair(gpu, Backend.GPU)
-        } catch (_: Throwable) {
+        } catch (e: Exception) {
             store.endRiskyLoad()
-            Pair(build(LmBackend.CPU()), Backend.CPU)
+            try {
+                Pair(build(LmBackend.CPU()), Backend.CPU)
+            } catch (cpu: Throwable) {
+                cpu.addSuppressed(e)
+                throw cpu
+            }
         }
     }
 }

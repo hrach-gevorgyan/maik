@@ -142,8 +142,12 @@ survives Stop. Reopening a chat seeds a fresh one with the most recent turns tha
 which no `catch` can see. It is off by default, and a breadcrumb written before each
 attempt means a crash during load turns it back off by itself.
 
-**Downloads resume.** They land in a `.part` file and continue from where they stopped;
-only a complete file with the `LITERTLM` header is renamed into place.
+**Downloads resume.** They land in a `.part` file and continue from where they stopped.
+Each URL is pinned to a Hugging Face commit, and only a file whose SHA-256 matches the
+catalogue and starts with the `LITERTLM` header is renamed into place.
+
+**Models stay out of backups.** Android backs up your chats and settings, never the
+multi-gigabyte model files.
 
 **Chats are saved atomically**, off the main thread. A crash mid-save leaves the previous
 history intact instead of wiping it.
@@ -185,7 +189,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 Or open the folder in Android Studio and press Run.
 
 ```bash
-./gradlew test                      # 40 unit tests
+./gradlew test                      # 66 unit tests
 ./gradlew connectedDebugAndroidTest # golden test, needs a device or emulator
 ```
 
@@ -261,9 +265,10 @@ app/src/main/java/com/maik/app/
 
 - **The model is small.** It follows instructions and holds a short thread, but it
   will state wrong things confidently.
-- **Long chats forget.** 4096 tokens is roughly 45 exchanges; the chat says so when
-  older messages fall out of range.
-- **No download resume.** Cancel at 1.4 GB and you start over.
+- **Long chats forget.** Context is 2048 tokens, roughly 20 short exchanges; older
+  turns are dropped first, and the chat says so.
+- **One download at a time.** Starting a second model's download while one runs tells
+  you to wait or cancel.
 - **No UI tests.** The logic and the model pipeline are covered; the screens are not.
 - **First load is slow.** The runtime prepares a cached copy of the model once; later loads are quick.
 

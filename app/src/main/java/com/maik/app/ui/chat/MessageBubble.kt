@@ -36,12 +36,12 @@ internal fun Bubble(msg: Message) {
     val buzz = tap()
 
     val bg = when {
-        msg.isError -> Color(0xFF2A1418)
+        msg.isError -> scheme.error.copy(alpha = 0.12f)
         msg.fromUser -> scheme.primary
         else -> scheme.surfaceVariant
     }
     val fg = when {
-        msg.isError -> Color(0xFFFF9BA6)
+        msg.isError -> scheme.error
         msg.fromUser -> scheme.onPrimary
         else -> scheme.onSurfaceVariant
     }

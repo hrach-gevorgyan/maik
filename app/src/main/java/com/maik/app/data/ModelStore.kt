@@ -44,7 +44,9 @@ data class ModelSpec(
      */
     val contextTokens: Int,
     /** Below this much total RAM, the model is likely to be killed or crawl. Guidance only. */
-    val minRamBytes: Long
+    val minRamBytes: Long,
+    /** SHA-256 of the file at [url], as Hugging Face lists it for the LFS object. */
+    val sha256: String
 ) {
     val fileName: String get() = "$id.litertlm"
     val approxMb: Long get() = approxBytes / 1024 / 1024
@@ -57,10 +59,11 @@ object Models {
         params = "2B effective",
         blurb = "Google's model built for phones. The most capable here.",
         url = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/" +
-            "resolve/main/gemma-4-E2B-it.litertlm",
+            "resolve/b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1/gemma-4-E2B-it.litertlm",
         approxBytes = 2_588_147_712L,
         contextTokens = 2048,
-        minRamBytes = 6L * 1024 * 1024 * 1024
+        minRamBytes = 6L * 1024 * 1024 * 1024,
+        sha256 = "181938105e0eefd105961417e8da75903eacda102c4fce9ce90f50b97139a63c"
     )
 
     val LFM_2_5_1_2B = ModelSpec(
@@ -69,10 +72,11 @@ object Models {
         params = "1.2B · int4",
         blurb = "A third of the download, quick to answer, and easy on the battery.",
         url = "https://huggingface.co/litert-community/LFM2.5-1.2B-Instruct/" +
-            "resolve/main/LFM2.5-1.2B-Instruct_int4.litertlm",
+            "resolve/eb5e75a985a46b5d5707282539d985fdd34e2a10/LFM2.5-1.2B-Instruct_int4.litertlm",
         approxBytes = 736_015_744L,
         contextTokens = 2048,
-        minRamBytes = 4L * 1024 * 1024 * 1024
+        minRamBytes = 4L * 1024 * 1024 * 1024,
+        sha256 = "a28b5c59ac204e2e51c1f98d2d6db6982f0e12da59a268fe498edcb33237e906"
     )
 
     val ALL = listOf(GEMMA_4_E2B, LFM_2_5_1_2B)
@@ -96,7 +100,7 @@ const val DEFAULT_SYSTEM_PROMPT =
 sealed interface Download {
     data class Progress(val bytes: Long, val total: Long) : Download
     data class Done(val file: File, val modelId: String) : Download
-    data class Failed(val reason: String, val cancelled: Boolean = false) : Download
+    data class Failed(val modelId: String, val reason: String, val cancelled: Boolean = false) : Download
 }
 
 class ModelStore(context: Context) {
@@ -161,6 +165,9 @@ class ModelStore(context: Context) {
 
     fun endRiskyLoad() = prefs.edit().putBoolean("loading", false).commit()
 
+    /** Clears the note without blocking; for startup, on the main thread. */
+    fun clearCrashMarker() = prefs.edit().putBoolean("loading", false).apply()
+
     fun lastLoadCrashed(): Boolean = prefs.getBoolean("loading", false)
 
     fun setThemeMode(mode: ThemeMode) {
@@ -191,7 +198,11 @@ class ModelStore(context: Context) {
 
     fun installed(): Set<String> = Models.ALL.filter { isReady(it) }.map { it.id }.toSet()
 
-    fun bytesOnDisk(): Long = Models.ALL.sumOf { fileFor(it).length() }
+    /** Everything a model takes: the file, any partial download, and the runtime's cache. */
+    fun bytesOnDisk(): Long = Models.ALL.sumOf { s ->
+        fileFor(s).length() + partFor(s).length() +
+            File(cacheRoot, s.id).walkBottomUp().filter { it.isFile }.sumOf { it.length() }
+    }
 
     /**
      * Downloads a model, resuming from an interrupted `.part` file when there is one.
@@ -200,68 +211,80 @@ class ModelStore(context: Context) {
     fun download(s: ModelSpec = spec): Flow<Download> = flow {
         val target = fileFor(s)
         val partial = partFor(s)
-        var conn: HttpURLConnection? = null
+        fun failed(reason: String) = Download.Failed(s.id, reason)
         try {
-            val have = partialBytes(s)
-            conn = (URL(s.url).openConnection() as HttpURLConnection).apply {
-                instanceFollowRedirects = true
-                connectTimeout = 30_000
-                readTimeout = 60_000
-                if (have > 0) setRequestProperty("Range", "bytes=$have-")
-            }
-            conn.connect()
+            // At most one restart: a partial the server can't continue is thrown away once.
+            for (attempt in 0..1) {
+                val have = partialBytes(s)
+                val conn = (URL(s.url).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = true
+                    connectTimeout = 30_000
+                    readTimeout = 60_000
+                    if (have > 0) setRequestProperty("Range", "bytes=$have-")
+                }
+                try {
+                    conn.connect()
+                    val code = conn.responseCode
+                    if (code !in 200..299 && code != 416) {
+                        emit(failed("The server answered $code."))
+                        return@flow
+                    }
+                    val outcome = ResumePlan.decide(
+                        have, code, conn.contentLengthLong, s.approxBytes,
+                        ResumePlan.parseContentRangeStart(conn.getHeaderField("Content-Range"))
+                    )
+                    when (outcome) {
+                        ResumePlan.Outcome.RestartFromZero -> {
+                            partial.delete()
+                            if (attempt == 0) continue
+                            emit(failed("The server couldn't continue the download. Try again."))
+                            return@flow
+                        }
 
-            val code = conn.responseCode
-            if (code !in 200..299) {
-                emit(Download.Failed("The server answered $code."))
-                return@flow
-            }
+                        ResumePlan.Outcome.AlreadyComplete -> Unit
 
-            val plan = ResumePlan.of(have, code, conn.contentLengthLong, s.approxBytes)
-            if (!plan.resuming) partial.delete()
-            val resuming = plan.resuming
-            val start = plan.start
-            val total = plan.total
-            val remaining = total - start
-
-            if (!hasRoomFor(remaining)) {
-                emit(Download.Failed("Not enough free space — this needs ${remaining / 1024 / 1024} MB more."))
-                return@flow
-            }
-
-            emit(Download.Progress(start, total))
-            conn.inputStream.use { input ->
-                FileOutputStream(partial, resuming).use { output ->
-                    val buffer = ByteArray(1 shl 16)
-                    var copied = start
-                    var lastEmit = start
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read < 0) break
-                        output.write(buffer, 0, read)
-                        copied += read
-                        if (copied - lastEmit > 4_000_000 || copied == total) {
-                            lastEmit = copied
-                            emit(Download.Progress(copied, total))
+                        is ResumePlan.Outcome.Copy -> {
+                            if (!outcome.resuming) partial.delete()
+                            val remaining = outcome.total - outcome.start
+                            if (!hasRoomFor(remaining, s)) {
+                                emit(failed("Not enough free space — this needs ${remaining / 1024 / 1024} MB more."))
+                                return@flow
+                            }
+                            emit(Download.Progress(outcome.start, outcome.total))
+                            conn.inputStream.use { input ->
+                                FileOutputStream(partial, outcome.resuming).use { output ->
+                                    copyStream(input, output, outcome.start) { copied ->
+                                        emit(Download.Progress(copied, outcome.total))
+                                    }
+                                }
+                            }
+                            if (partial.length() < outcome.total) {
+                                emit(failed("The download was interrupted. It will continue from where it stopped."))
+                                return@flow
+                            }
                         }
                     }
+                } finally {
+                    conn.disconnect()
                 }
+                break
             }
 
-            if (partial.length() < total) {
-                emit(Download.Failed("The download was interrupted. It will continue from where it stopped."))
+            // A pinned URL plus the checksum means a resumed file can't be two files spliced.
+            if (!sha256Of(partial).equals(s.sha256, ignoreCase = true)) {
+                partial.delete()
+                emit(failed("The download was corrupted. Try again."))
                 return@flow
             }
-
             validate(partial)?.let { problem ->
                 partial.delete()
-                emit(Download.Failed(problem))
+                emit(failed(problem))
                 return@flow
             }
 
             if (target.exists()) target.delete()
             if (!partial.renameTo(target)) {
-                emit(Download.Failed("Could not save the downloaded file."))
+                emit(failed("Could not save the downloaded file."))
                 return@flow
             }
             emit(Download.Done(target, s.id))
@@ -269,9 +292,7 @@ class ModelStore(context: Context) {
             // Cancelled on purpose: keep the partial file so the next attempt resumes.
             throw e
         } catch (e: Exception) {
-            emit(Download.Failed(humanise(e)))
-        } finally {
-            conn?.disconnect()
+            emit(failed(humanise(e)))
         }
     }.flowOn(Dispatchers.IO)
 
@@ -281,8 +302,9 @@ class ModelStore(context: Context) {
         File(cacheRoot, s.id).deleteRecursively()
     }
 
-    private fun hasRoomFor(bytes: Long): Boolean =
-        runCatching { dir.usableSpace > bytes + 128L * 1024 * 1024 }.getOrDefault(true)
+    /** Room for the rest of the file plus the runtime's prepared copy of it. */
+    private fun hasRoomFor(bytes: Long, s: ModelSpec): Boolean =
+        runCatching { dir.usableSpace > bytes + maxOf(512L shl 20, s.approxBytes / 4) }.getOrDefault(false)
 
     private fun humanise(e: Exception): String = when (e) {
         is java.net.UnknownHostException -> "No connection. The download will continue when you retry."
@@ -291,7 +313,7 @@ class ModelStore(context: Context) {
         else -> e.message ?: e::class.java.simpleName
     }
 
-    private companion object {
+    internal companion object {
         /** Anything smaller than this is a stub or an error page, not a model. */
         const val MIN_PLAUSIBLE_BYTES = 20L * 1024 * 1024
 
@@ -304,6 +326,45 @@ class ModelStore(context: Context) {
         fun gpuByDefault(): Boolean =
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
                 GPU_CHIPS.any { Build.SOC_MODEL.uppercase().startsWith(it) }
+
+        fun sha256Of(file: File): String {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(1 shl 20)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
+        }
+
+        /**
+         * Copies [input] to [output], reporting the running total (counted from [start])
+         * every few megabytes and always once at the end.
+         */
+        suspend fun copyStream(
+            input: java.io.InputStream,
+            output: java.io.OutputStream,
+            start: Long,
+            onProgress: suspend (Long) -> Unit
+        ) {
+            val buffer = ByteArray(1 shl 16)
+            var copied = start
+            var lastEmit = start
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                output.write(buffer, 0, read)
+                copied += read
+                if (copied - lastEmit > 4_000_000) {
+                    lastEmit = copied
+                    onProgress(copied)
+                }
+            }
+            onProgress(copied)
+        }
 
         fun validate(file: File): String? = try {
             RandomAccessFile(file, "r").use { raf ->

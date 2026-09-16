@@ -15,6 +15,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -83,13 +85,14 @@ fun Wordmark(size: Int = 26) {
 
 @Composable
 fun OnDevicePill() {
-    val pulse = rememberInfiniteTransition(label = "pulse")
-    val a by pulse.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1400, easing = LinearEasing), RepeatMode.Reverse),
-        label = "a"
-    )
+    // A few breaths on arrival, then still: an endless pulse keeps the screen redrawing.
+    val a = remember { Animatable(1f) }
+    LaunchedEffect(Unit) {
+        repeat(3) {
+            a.animateTo(0.35f, tween(700, easing = LinearEasing))
+            a.animateTo(1f, tween(700, easing = LinearEasing))
+        }
+    }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -100,7 +103,7 @@ fun OnDevicePill() {
         Box(
             Modifier
                 .size(6.dp)
-                .alpha(a)
+                .graphicsLayer { alpha = a.value }
                 .background(MaterialTheme.colorScheme.primary, CircleShape)
         )
         Spacer(Modifier.width(7.dp))
@@ -199,6 +202,7 @@ fun QuietAction(label: String, onClick: () -> Unit) {
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f),
             modifier = Modifier
+                .minimumInteractiveComponentSize()
                 .clip(CircleShape)
                 .border(
                     1.dp,
