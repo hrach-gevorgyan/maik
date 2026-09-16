@@ -19,8 +19,8 @@ jobs:
   version:
     runs-on: ubuntu-latest
     outputs:
-      name: ${{ needs.version.outputs.name }}
-      code: ${{ needs.version.outputs.code }}
+      name: ${{ steps.version.outputs.name }}
+      code: ${{ steps.version.outputs.code }}
     steps:
       - name: Work out the version
         id: version
