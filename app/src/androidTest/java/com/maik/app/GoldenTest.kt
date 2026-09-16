@@ -131,7 +131,7 @@ class GoldenTest {
 
     /** One question in a fresh conversation, trimmed exactly as the app trims it. */
     private fun ask(question: String): String =
-        engine!!.createConversation(config()).use { Reply.clean(textOf(it.sendMessage(question))) }
+        engine!!.createConversation(config()).use { textOf(it.sendMessage(question)).trim() }
 
     private fun config() = ConversationConfig(
         samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = 0),

@@ -203,8 +203,7 @@ fun ModelCard(
         }
         Spacer(Modifier.height(3.dp))
         Text(
-            "${model.params} · ${model.contextTokens / 1024}K context" +
-                if (model.reasoning) " · reasons first" else "",
+            "${model.params} · ${model.contextTokens / 1024}K context",
             style = MaterialTheme.typography.labelSmall,
             color = scheme.onSurfaceVariant.copy(alpha = 0.28f)
         )
@@ -450,10 +449,18 @@ private fun BehaviourPage(vm: ChatViewModel) {
             )
             Spacer(Modifier.height(12.dp))
             ToggleRow(
+                label = "Show speed",
+                detail = "Time to first word and words per second under each reply. " +
+                    "For troubleshooting.",
+                checked = vm.debugMode,
+                onChange = vm::updateDebug
+            )
+            Spacer(Modifier.height(12.dp))
+            ToggleRow(
                 label = "Use the GPU",
-                detail = "Faster when it works. Some drivers refuse it or crash " +
-                    "outright, so it stays off unless you ask. If the app dies while " +
-                    "loading, this turns itself back off.",
+                detail = "Much faster at reading your message. On by default on recent " +
+                    "Snapdragon chips. If the app ever crashes while loading, this turns " +
+                    "itself off.",
                 checked = vm.useGpu,
                 onChange = vm::updateUseGpu
             )

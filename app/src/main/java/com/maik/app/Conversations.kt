@@ -1,6 +1,7 @@
 package com.maik.app
 
 import android.content.Context
+import androidx.core.util.AtomicFile
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -12,43 +13,9 @@ data class Message(
     val fromUser: Boolean,
     val isError: Boolean = false,
     val at: Long = System.currentTimeMillis(),
-    /** What a reasoning model worked through before answering, if anything. */
-    val reasoning: String? = null,
-    /** Seconds spent thinking, shown next to the reasoning toggle. */
-    val thoughtSeconds: Int = 0
+    /** Speed figures for a reply, shown only in debug mode. */
+    val stats: String? = null
 )
-
-/**
- * Splits a reasoning model's raw output into the part it was working through and
- * the part meant for the reader.
- *
- * Reasoning models wrap their working in `<think>` … `</think>`. The opening tag is
- * sometimes implied rather than emitted, so an unterminated stream counts as still
- * thinking only when a tag actually opened it.
- */
-data class Split(val reasoning: String, val answer: String, val stillThinking: Boolean) {
-    companion object {
-        private const val OPEN = "<think>"
-        private const val CLOSE = "</think>"
-
-        fun of(raw: String): Split {
-            val close = raw.indexOf(CLOSE)
-            if (close >= 0) {
-                val start = raw.indexOf(OPEN).let { if (it >= 0) it + OPEN.length else 0 }
-                return Split(
-                    reasoning = raw.substring(start, close).trim(),
-                    answer = raw.substring(close + CLOSE.length).trimStart(),
-                    stillThinking = false
-                )
-            }
-            val open = raw.indexOf(OPEN)
-            if (open >= 0) {
-                return Split(raw.substring(open + OPEN.length).trim(), "", stillThinking = true)
-            }
-            return Split("", raw, stillThinking = false)
-        }
-    }
-}
 
 @Serializable
 data class Conversation(
@@ -78,27 +45,41 @@ data class Conversation(
 
 /**
  * Whole-file JSON persistence. A chat history is a few hundred KB at worst, so a
- * database would be ceremony; the tradeoff is that every save rewrites the file.
+ * database would be ceremony.
+ *
+ * Writes go through [AtomicFile]: a crash mid-save leaves the previous file intact
+ * instead of a half-written one that would wipe every chat on the next launch.
  */
 class ChatStore(context: Context) {
 
     private val file = File(context.filesDir, "conversations.json")
+    private val atomic = AtomicFile(file)
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-    fun load(): List<Conversation> = try {
-        if (!file.exists()) emptyList()
-        else json.decodeFromString<List<Conversation>>(file.readText())
-            .sortedByDescending { it.updatedAt }
-    } catch (_: Exception) {
-        // A corrupt history should cost you your chats, not the whole app.
-        emptyList()
+    fun load(): List<Conversation> {
+        // No early exists() check: after a crash mid-save only the backup may be on
+        // disk, and reading through AtomicFile is what restores it.
+        return try {
+            json.decodeFromString<List<Conversation>>(String(atomic.readFully(), Charsets.UTF_8))
+                .sortedByDescending { it.updatedAt }
+        } catch (_: java.io.FileNotFoundException) {
+            emptyList()
+        } catch (_: Exception) {
+            // Set the unreadable file aside rather than overwrite it with an empty list
+            // on the next save: the chats may still be recoverable.
+            runCatching { file.renameTo(File(file.parentFile, "conversations.corrupt.json")) }
+            emptyList()
+        }
     }
 
     fun save(conversations: List<Conversation>) {
+        var stream: java.io.FileOutputStream? = null
         try {
-            file.writeText(json.encodeToString(conversations))
+            stream = atomic.startWrite()
+            stream.write(json.encodeToString(conversations).toByteArray(Charsets.UTF_8))
+            atomic.finishWrite(stream)
         } catch (_: Exception) {
-            // Nothing useful to do — the in-memory list is still intact.
+            stream?.let { atomic.failWrite(it) }
         }
     }
 }

@@ -7,6 +7,47 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 1.8.0 — 17 September 2026
+
+**Faster, steadier, and it stops losing things.**
+
+### Faster
+
+- **The GPU is on by default** on Snapdragon 8 Gen 3 and newer. It reads your message
+  many times faster than the CPU. If loading ever crashes, it switches itself off.
+- **The model stays loaded.** It belongs to the app, not to a screen, so rotating the
+  phone or coming back to the app no longer reloads it, and its prepared copy is kept
+  where the system won't clear it.
+- **Less re-reading.** Stopping a reply no longer throws away the conversation, so the
+  next message doesn't make the model read the whole chat again.
+- **Smoother streaming.** The reply updates a few times a second instead of on every
+  word, and the list only follows along if you're already at the bottom.
+
+### Models
+
+- **LFM2.5 1.2B replaces Qwen3.5 2B** — a third of the download and much lighter on
+  the phone. Gemma 4 E2B stays the default.
+- **Thinking is gone.** Neither model uses it.
+
+### Fixed
+
+- Two model loads could run at once, holding two copies of a 2.5 GB model in memory.
+- A finished download could be replayed to a new screen and start a second load.
+- The engine could be closed while it was still writing a reply.
+- A crash while saving could wipe every chat.
+- Deleting the model in use left the app stuck.
+- Every load failure said "download again", even when the file was fine.
+- An interrupted download started again from zero. It now continues.
+
+### New
+
+- **Opening a chat that used a different model asks** whether to switch or keep the
+  one that's loaded.
+- **Show speed** under Settings → Behaviour displays time to first word and speed
+  under each reply.
+
+---
+
 ## 1.7.0 — 16 September 2026
 
 **New engine, new models.**

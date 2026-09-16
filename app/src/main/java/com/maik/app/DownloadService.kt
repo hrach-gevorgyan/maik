@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
@@ -24,13 +25,24 @@ import kotlinx.coroutines.launch
  * the UI needs to be able to attach to it at any point without a connection dance.
  */
 object DownloadBus {
-    val state = MutableStateFlow<Download?>(null)
     val running = MutableStateFlow(false)
+
+    /** Which model is downloading, so a recreated screen can show the right one. */
+    val modelId = MutableStateFlow<String?>(null)
+
+    /** Latest progress. State, because a screen arriving late should see it. */
+    val progress = MutableStateFlow<Download.Progress?>(null)
+
+    /**
+     * Finished and failed downloads. Events, not state: replaying a stale "done" to
+     * every new screen is what used to start a second, duplicate model load.
+     */
+    val events = MutableSharedFlow<Download>(extraBufferCapacity = 8)
 }
 
 /**
  * Downloads the model as a foreground service, so it survives the screen locking,
- * the app being backgrounded, and the process being trimmed for memory. A 1.5 GB
+ * the app being backgrounded, and the process being trimmed for memory. A 2.5 GB
  * fetch is far too long to hang off an Activity's lifecycle.
  */
 class DownloadService : Service() {
@@ -45,37 +57,43 @@ class DownloadService : Service() {
             stopEverything()
             return START_NOT_STICKY
         }
-        if (job?.isActive == true) return START_STICKY
+        if (job?.isActive == true) return START_REDELIVER_INTENT
 
         val store = ModelStore(applicationContext)
         val spec = Models.byId(intent?.getStringExtra(EXTRA_MODEL_ID) ?: store.spec.id)
 
         createChannel()
         startForeground(NOTIFICATION_ID, buildNotification(spec.label, 0, 0, indeterminate = true))
+        DownloadBus.modelId.value = spec.id
         DownloadBus.running.value = true
 
         job = scope.launch {
             store.download(spec).collect { event ->
-                DownloadBus.state.value = event
                 when (event) {
-                    is Download.Progress -> notify(
-                        buildNotification(spec.label, event.bytes, event.total, false)
-                    )
+                    is Download.Progress -> {
+                        DownloadBus.progress.value = event
+                        notify(buildNotification(spec.label, event.bytes, event.total, false))
+                    }
 
                     is Download.Done, is Download.Failed -> {
                         DownloadBus.running.value = false
+                        DownloadBus.progress.value = null
+                        DownloadBus.events.tryEmit(event)
                         stopSelf()
                     }
                 }
             }
         }
-        return START_STICKY
+        // If the system kills the process mid-download, it restarts the service with
+        // this same intent — the same model — and the download resumes.
+        return START_REDELIVER_INTENT
     }
 
     private fun stopEverything() {
         job?.cancel()
         DownloadBus.running.value = false
-        DownloadBus.state.value = Download.Failed("Cancelled")
+        DownloadBus.progress.value = null
+        DownloadBus.events.tryEmit(Download.Failed("Cancelled", cancelled = true))
         stopSelf()
     }
 

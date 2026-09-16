@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -14,18 +15,17 @@ import androidx.lifecycle.viewModelScope
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
 import com.google.ai.edge.litertlm.ConversationConfig
-import com.google.ai.edge.litertlm.Engine
-import com.google.ai.edge.litertlm.EngineConfig
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.ThinkingConfig
-import kotlinx.coroutines.Job
-import com.google.ai.edge.litertlm.Backend as LmBackend
-import com.google.ai.edge.litertlm.Conversation as LmConversation
-import com.google.ai.edge.litertlm.Message as LmMessage
+import java.util.Locale
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.google.ai.edge.litertlm.Conversation as LmConversation
+import com.google.ai.edge.litertlm.Message as LmMessage
 
 /** What the engine is doing, independent of which screen you're looking at. */
 sealed interface Stage {
@@ -38,8 +38,11 @@ sealed interface Stage {
     data object Ready : Stage
 
     /** [detail] is the raw engine message, kept for the expandable section. */
-    data class Broken(val summary: String, val detail: String, val refetch: Boolean) : Stage
+    data class Broken(val summary: String, val detail: String, val fix: Fix) : Stage
 }
+
+/** The one action that can actually cure a [Stage.Broken]. */
+enum class Fix { RESUME_DOWNLOAD, REDOWNLOAD, RETRY_LOAD }
 
 enum class Screen { List, Chat, Settings, Setup }
 
@@ -49,6 +52,9 @@ enum class SettingsPage { Root, Models, Appearance, Behaviour, Instructions, Sto
 /** Which compute unit the loaded engine ended up on. */
 enum class Backend { GPU, CPU, NONE }
 
+/** An opened chat that was started with a different model from the one loaded. */
+data class ModelSwitch(val chatId: String, val chatModel: ModelSpec, val loaded: ModelSpec)
+
 class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     private val store = ModelStore(app.applicationContext)
@@ -56,16 +62,13 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     val conversations = mutableStateListOf<Conversation>()
 
-    /** The model the app is set to use. A chat may pin a different one. */
+    /** The model new chats use. */
     val spec: ModelSpec get() = store.spec
 
-    /**
-     * What the setup screen should fetch. Usually [spec], but opening a chat that
-     * is pinned to a model you haven't downloaded points it there instead —
-     * without quietly changing what new chats will use.
-     */
+    /** The model the engine is loading or has loaded — what the setup screen offers. */
     var target by mutableStateOf(Models.DEFAULT)
         private set
+
     fun installedModels(): Set<String> = store.installed()
     fun bytesOnDisk(): Long = store.bytesOnDisk()
 
@@ -92,50 +95,40 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     var useGpu by mutableStateOf(false)
         private set
 
-    /**
-     * Bumped whenever a model file appears or disappears. Reading the disk during
-     * composition is not observable state, which is why deleting a model used to
-     * leave the row sitting there.
-     */
+    /** Shows the speed line under replies. Off unless asked for. */
+    var debugMode by mutableStateOf(false)
+        private set
+
+    /** Bumped whenever a model file appears or disappears, so lists re-read the disk. */
     var storageVersion by mutableStateOf(0)
         private set
 
     /** Set when a download completes, so the setup screen can confirm it. */
     var justInstalled by mutableStateOf(false)
         private set
-    var thinkingEnabled by mutableStateOf(true)
-        private set
 
-    /** Raw tokens from the current generation, reasoning tags and all. */
+    /** The reply as it streams in, published a few times a second rather than per token. */
     var streaming by mutableStateOf("")
-        private set
-
-    /** The live split of [streaming] into reasoning and answer. */
-    val live: Split get() = Split.of(streaming)
-
-    /** When the current turn started, so the thinking indicator can count up. */
-    var turnStartedAt by mutableStateOf(0L)
         private set
 
     /** How many old messages fell outside the context window on the last turn. */
     var dropped by mutableStateOf(0)
         private set
 
-    private var engine: Engine? = null
+    /** Asks which model to use when an opened chat was held with another one. */
+    var pendingSwitch by mutableStateOf<ModelSwitch?>(null)
+        private set
 
-    /** The runtime's own conversation, which holds the chat's context between turns. */
+    /** The runtime conversation holding the open chat's context between turns. */
     private var session: LmConversation? = null
-
-    /** Which chat [session] belongs to, and the thinking setting it was built with. */
     private var sessionOwner: String? = null
-    private var sessionThinks: Boolean? = null
 
     private var job: Job? = null
 
-    /** Which spec [engine] was built from, so a chat can demand a different one. */
-    private var loadedId: String? = null
+    /** The model this screen asked to load, so a superseded load is ignored. */
+    private var loadingId: String? = null
 
-    /** Bumped per turn so a stopped generation's stray callbacks are ignored. */
+    /** Bumped per turn so a stopped generation's late output is ignored. */
     private var generation = 0
 
     val current: Conversation?
@@ -157,25 +150,43 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         conversations.addAll(chats.load())
-        thinkingEnabled = store.thinking
         systemPrompt = store.systemPrompt
         themeMode = store.themeMode
         hapticsEnabled = store.haptics
+        debugMode = store.debug
 
-        // If the process died during the last load, the GPU delegate is the prime
-        // suspect: it crashes natively on some drivers and cannot be caught.
-        useGpu = store.useGpu && !store.lastLoadCrashed()
+        // The process died during the last load. The GPU is the prime suspect: it can
+        // crash natively, and no error handling sees that.
         if (store.lastLoadCrashed()) {
             store.setUseGpu(false)
             store.endRiskyLoad()
         }
-        watchDownloads()
-        target = store.spec
-        stage = when {
-            store.isReady() -> Stage.Loading.also { loadEngine(store.spec) }
-            DownloadBus.running.value -> Stage.Downloading(0, spec.approxBytes)
-            else -> Stage.NeedsModel
+        useGpu = store.useGpu
+
+        val warm = LocalEngine.loadedId?.let { id -> Models.ALL.firstOrNull { it.id == id } }
+        val downloadingId = DownloadBus.modelId.value
+        when {
+            // The model is still loaded from before this screen was recreated.
+            warm != null -> {
+                target = warm
+                backend = LocalEngine.backend
+                stage = Stage.Ready
+            }
+
+            DownloadBus.running.value && downloadingId != null -> {
+                target = Models.byId(downloadingId)
+                val progress = DownloadBus.progress.value
+                stage = Stage.Downloading(progress?.bytes ?: 0, progress?.total ?: target.approxBytes)
+            }
+
+            store.isReady() -> loadEngine(store.spec)
+
+            else -> {
+                target = store.spec
+                stage = Stage.NeedsModel
+            }
         }
+        watchDownloads()
     }
 
     /* ---------- navigation ---------- */
@@ -205,45 +216,71 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         settingsPage = page
     }
 
-    /**
-     * One step back, wherever we are. Settings sub-pages return to the settings
-     * menu first, so Back never skips a level.
-     */
+    /** One step back. Settings pages return to the settings menu first. */
     fun back() {
         when {
+            pendingSwitch != null -> pendingSwitch = null
             screen == Screen.Settings && settingsPage != SettingsPage.Root ->
                 settingsPage = SettingsPage.Root
 
             screen == Screen.Setup && stage is Stage.Downloading -> openSettings()
-
             else -> openList()
         }
     }
 
     fun open(id: String) {
+        if (busy) stop()
+        val convo = conversations.firstOrNull { it.id == id } ?: return
         currentId = id
         dropped = 0
         screen = Screen.Chat
-        // A chat pinned to another model needs that model loaded before it can talk.
-        ensureEngineFor(modelFor(conversations.firstOrNull { it.id == id }))
+
+        val wanted = modelFor(convo)
+        val loaded = LocalEngine.loadedId?.let { loadedId -> Models.ALL.firstOrNull { it.id == loadedId } }
+
+        // A chat held with a different model than the loaded one: ask, don't guess.
+        if (convo.messages.isNotEmpty() && loaded != null && loaded.id != wanted.id) {
+            target = loaded
+            backend = LocalEngine.backend
+            stage = Stage.Ready
+            pendingSwitch = ModelSwitch(id, wanted, loaded)
+            return
+        }
+        ensureEngineFor(wanted)
+    }
+
+    /** Answers [pendingSwitch]: load the chat's own model, or carry on with the loaded one. */
+    fun resolveSwitch(useChatModel: Boolean) {
+        val choice = pendingSwitch ?: return
+        pendingSwitch = null
+        if (useChatModel) {
+            ensureEngineFor(choice.chatModel)
+        } else {
+            replace(choice.chatId) { it.copy(modelId = choice.loaded.id) }
+            persist()
+        }
     }
 
     fun newChat() {
-        val fresh = Conversation(id = UUID.randomUUID().toString(), title = "New chat")
+        if (busy) stop()
+        val model = LocalEngine.loadedId?.let { id -> Models.ALL.firstOrNull { it.id == id } } ?: store.spec
+        val fresh = Conversation(id = UUID.randomUUID().toString(), title = "New chat", modelId = model.id)
         conversations.add(0, fresh)
         currentId = fresh.id
         dropped = 0
         query = ""
         screen = Screen.Chat
-        ensureEngineFor(store.spec)
+        ensureEngineFor(model)
     }
 
     fun delete(id: String) {
-        conversations.removeAll { it.id == id }
         if (currentId == id) {
+            if (busy) stop()
             currentId = null
             screen = Screen.List
         }
+        if (sessionOwner == id) viewModelScope.launch { dropSession() }
+        conversations.removeAll { it.id == id }
         persist()
     }
 
@@ -254,6 +291,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun deleteAll() {
+        if (busy) stop()
+        viewModelScope.launch { dropSession() }
         conversations.clear()
         currentId = null
         screen = Screen.List
@@ -267,56 +306,49 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         themeMode = mode
     }
 
-    fun setThinking(enabled: Boolean) {
-        store.setThinking(enabled)
-        thinkingEnabled = enabled
-    }
-
     fun updateHaptics(enabled: Boolean) {
         store.setHaptics(enabled)
         hapticsEnabled = enabled
     }
 
+    fun updateDebug(enabled: Boolean) {
+        store.setDebug(enabled)
+        debugMode = enabled
+    }
+
     fun updateUseGpu(enabled: Boolean) {
         store.setUseGpu(enabled)
         useGpu = enabled
-        if (stage is Stage.Ready || stage is Stage.Broken) {
-            closeEngine()
-            if (store.isReady(target)) loadEngine(target)
+        // The engine is rebuilt on the new backend; the loader drops the old one first.
+        if (store.isReady(target) && (stage is Stage.Ready || stage is Stage.Broken || stage is Stage.Loading)) {
+            loadingId = null
+            loadEngine(target)
         }
     }
 
     fun updateSystemPrompt(text: String) {
         store.setSystemPrompt(text)
         systemPrompt = store.systemPrompt
+        // The instruction is fixed when a conversation starts; start a new one next turn.
+        viewModelScope.launch { dropSession() }
     }
 
     /* ---------- model ---------- */
 
-    /**
-      * Picks the model new chats will use. If it isn't downloaded yet, go straight
-      * to the download screen — tapping a model and having nothing visible happen
-      * is the same as the app being broken.
-      */
+    /** Picks the model new chats use, and goes straight to the download if it's missing. */
     fun selectModel(next: ModelSpec) {
-        val alreadyCurrent = next.id == store.spec.id
         store.select(next)
         target = next
-
         if (store.isReady(next)) {
-            if (!alreadyCurrent || stage !is Stage.Ready) {
-                closeEngine()
-                loadEngine(next)
-            }
+            ensureEngineFor(next)
             if (screen == Screen.Setup) screen = Screen.List
         } else {
-            closeEngine()
             stage = Stage.NeedsModel
             screen = Screen.Setup
         }
     }
 
-    /** Pins the open chat to a model, downloading or loading it if needed. */
+    /** Pins the open chat to a model, loading it if needed. */
     fun setModelForCurrentChat(next: ModelSpec) {
         val convo = current ?: return
         replace(convo.id) { it.copy(modelId = next.id) }
@@ -326,13 +358,16 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun ensureEngineFor(wanted: ModelSpec) {
         target = wanted
-        if (loadedId == wanted.id && stage is Stage.Ready) return
-        if (!store.isReady(wanted)) {
-            stage = Stage.NeedsModel
-            return
+        when {
+            LocalEngine.loadedId == wanted.id && loadingId == null -> {
+                backend = LocalEngine.backend
+                stage = Stage.Ready
+            }
+
+            loadingId == wanted.id -> stage = Stage.Loading
+            !store.isReady(wanted) -> stage = Stage.NeedsModel
+            else -> loadEngine(wanted)
         }
-        closeEngine()
-        loadEngine(wanted)
     }
 
     /** True when the active connection would bill you for the download. */
@@ -346,8 +381,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun startDownload() {
         if (stage is Stage.Downloading) return
-        stage = Stage.Downloading(0, target.approxBytes)
-        // Handed to a foreground service so it keeps going when the screen locks.
+        stage = Stage.Downloading(store.partialBytes(target), target.approxBytes)
+        // A foreground service, so it keeps going when the screen locks.
         DownloadService.start(getApplication(), target.id)
     }
 
@@ -361,108 +396,119 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun watchDownloads() {
         viewModelScope.launch {
-            DownloadBus.state.collect { event ->
+            DownloadBus.progress.collect { progress ->
+                if (progress != null && DownloadBus.running.value) {
+                    stage = Stage.Downloading(progress.bytes, progress.total)
+                }
+            }
+        }
+        viewModelScope.launch {
+            DownloadBus.events.collect { event ->
                 when (event) {
-                    is Download.Progress -> stage = Stage.Downloading(event.bytes, event.total)
-                    is Download.Failed ->
-                        if (event.reason == "Cancelled") stage = Stage.NeedsModel
-                        else stage = Stage.Broken(event.reason, "", refetch = true)
-
                     is Download.Done -> {
                         storageVersion++
-                        justInstalled = true
-                        if (stage !is Stage.Ready) loadEngine(target)
+                        // Only the model this screen is waiting for; a stale event must
+                        // never start a second load.
+                        if (event.modelId == target.id) {
+                            justInstalled = true
+                            loadEngine(target)
+                        }
                     }
-                    null -> Unit
+
+                    is Download.Failed -> stage =
+                        if (event.cancelled) Stage.NeedsModel
+                        else Stage.Broken(event.reason, "", Fix.RESUME_DOWNLOAD)
+
+                    is Download.Progress -> Unit
                 }
             }
         }
     }
 
     fun retry() {
-        if (store.isReady(target)) loadEngine(target) else stage = Stage.NeedsModel
-    }
-
-    fun deleteModel(s: ModelSpec = target) {
-        if (s.id == loadedId) closeEngine()
-        store.delete(s)
-        storageVersion++
-        if (s.id == store.spec.id) stage = Stage.NeedsModel
-    }
-
-    private fun loadEngine(target: ModelSpec) {
-        stage = Stage.Loading
-        viewModelScope.launch {
-            try {
-                val opened = withContext(Dispatchers.IO) { openEngine(target) }
-                engine = opened.first
-                backend = opened.second
-                loadedId = target.id
-                stage = Stage.Ready
-            } catch (e: Throwable) {
-                backend = Backend.NONE
-                loadedId = null
-                val detail = e.message ?: e::class.java.simpleName
-                // A bundle that is present but unreadable is almost always a bad
-                // download, and the only cure is fetching it again.
-                stage = Stage.Broken(
-                    summary = "${target.label} could not be loaded.",
-                    detail = detail,
-                    refetch = true
-                )
+        when (val broken = stage) {
+            is Stage.Broken -> when (broken.fix) {
+                Fix.RETRY_LOAD -> loadEngine(target)
+                Fix.RESUME_DOWNLOAD -> startDownload()
+                Fix.REDOWNLOAD -> {
+                    viewModelScope.launch {
+                        withContext(Dispatchers.IO) { store.delete(target) }
+                        storageVersion++
+                        startDownload()
+                    }
+                }
             }
+
+            else -> if (store.isReady(target)) loadEngine(target) else stage = Stage.NeedsModel
         }
     }
 
-    /**
-     * CPU by default. The GPU backend is faster when it works, but on some drivers it
-     * takes the whole process down with it — a native crash no `catch` can see, which
-     * is why it is opt-in and why a breadcrumb is written around the attempt.
-     *
-     * The cache directory is where the runtime keeps its prepared copy of the model,
-     * which is what makes every load after the first one quick.
-     */
-    private fun openEngine(target: ModelSpec): Pair<Engine, Backend> {
-        val app = getApplication<Application>()
+    /** Deletes a model's file, unloading it first if it is the one in use. */
+    fun deleteModel(s: ModelSpec = target) {
+        if (loadingId == s.id) return
+        viewModelScope.launch {
+            if (LocalEngine.loadedId == s.id) {
+                if (busy) stop()
+                job?.join()
+                dropSession()
+                LocalEngine.close()
+                backend = Backend.NONE
+            }
+            withContext(Dispatchers.IO) { store.delete(s) }
+            storageVersion++
+            if (s.id == target.id) stage = Stage.NeedsModel
+        }
+    }
 
-        fun build(backend: LmBackend) = Engine(
-            EngineConfig(
-                modelPath = store.fileFor(target).absolutePath,
-                backend = backend,
-                maxNumTokens = target.contextTokens,
-                cacheDir = app.cacheDir.absolutePath
+    private fun loadEngine(model: ModelSpec) {
+        if (loadingId == model.id) return
+        loadingId = model.id
+        target = model
+        stage = Stage.Loading
+        val previous = job
+        viewModelScope.launch {
+            val result = runCatching {
+                previous?.join()
+                // The conversation belongs to the engine being replaced.
+                dropSession()
+                LocalEngine.load(store, model, useGpu)
+            }
+            // A newer request replaced this one; that load will set the stage.
+            if (loadingId != model.id) return@launch
+            loadingId = null
+            result
+                .onSuccess {
+                    backend = it
+                    stage = Stage.Ready
+                }
+                .onFailure { e ->
+                    if (e is CancellationException) return@onFailure
+                    backend = Backend.NONE
+                    stage = brokenFor(model, e)
+                }
+        }
+    }
+
+    /** Only a file that fails its check is a bad download; everything else is not. */
+    private suspend fun brokenFor(model: ModelSpec, e: Throwable): Stage.Broken {
+        val detail = e.message ?: e::class.java.simpleName
+        val damaged = withContext(Dispatchers.IO) { store.check(model) } != null
+        return when {
+            damaged -> Stage.Broken(
+                "The ${model.label} file is damaged. Downloading it again should fix this.",
+                detail,
+                Fix.REDOWNLOAD
             )
-        ).also { it.initialize() }
 
-        if (!useGpu) return Pair(build(LmBackend.CPU()), Backend.CPU)
+            e is OutOfMemoryError || detail.contains("memory", ignoreCase = true) -> Stage.Broken(
+                "There isn't enough free memory to load ${model.label}. " +
+                    "Close other apps, or pick a smaller model.",
+                detail,
+                Fix.RETRY_LOAD
+            )
 
-        store.beginRiskyLoad()
-        return try {
-            val opened = Pair(build(LmBackend.GPU()), Backend.GPU)
-            store.endRiskyLoad()
-            opened
-        } catch (_: Throwable) {
-            store.endRiskyLoad()
-            Pair(build(LmBackend.CPU()), Backend.CPU)
+            else -> Stage.Broken("${model.label} could not be loaded.", detail, Fix.RETRY_LOAD)
         }
-    }
-
-    private fun closeEngine() {
-        generation++
-        job?.cancel()
-        dropSession()
-        runCatching { engine?.close() }
-        engine = null
-        loadedId = null
-        busy = false
-        backend = Backend.NONE
-    }
-
-    private fun dropSession() {
-        runCatching { session?.close() }
-        session = null
-        sessionOwner = null
-        sessionThinks = null
     }
 
     /* ---------- generation ---------- */
@@ -476,15 +522,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         replace(convo.id) {
             it.copy(
                 title = if (isFirst) Conversation.titleFrom(prompt) else it.title,
-                // Pin the model on the first exchange so the chat keeps one voice.
-                modelId = it.modelId ?: store.spec.id,
+                modelId = it.modelId ?: target.id,
                 messages = it.messages + Message(prompt, fromUser = true),
                 updatedAt = System.currentTimeMillis()
             )
         }
         bumpToTop(convo.id)
         persist()
-        generate(convo.id)
+        generate(convo.id, freshSession = false)
     }
 
     /** Drops the last reply and asks again from the same point. */
@@ -493,55 +538,70 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         if (busy) return
         val trimmed = convo.messages.dropLastWhile { !it.fromUser }
         if (trimmed.isEmpty()) return
-        // The live session still remembers the answer we are discarding.
-        dropSession()
         replace(convo.id) { it.copy(messages = trimmed) }
         persist()
-        generate(convo.id)
+        // The live conversation still holds the answer being thrown away.
+        generate(convo.id, freshSession = true)
     }
 
-    private fun generate(conversationId: String) {
-        val llm = engine
-        val convo = conversations.firstOrNull { it.id == conversationId }
-        if (llm == null || convo == null || stage !is Stage.Ready) {
-            finish(
-                conversationId,
-                "No model is loaded yet. Open Settings to download one.",
-                isError = true
-            )
+    private fun generate(conversationId: String, freshSession: Boolean) {
+        val convo = conversations.firstOrNull { it.id == conversationId } ?: return
+        val model = modelFor(convo)
+        if (stage !is Stage.Ready || LocalEngine.loadedId != model.id) {
+            finish(conversationId, "${model.label} isn't loaded yet.", isError = true)
             return
         }
 
         busy = true
         streaming = ""
-        turnStartedAt = System.currentTimeMillis()
         val turn = ++generation
         val prompt = convo.messages.last().text
+        val previous = job
 
         job = viewModelScope.launch {
-            val answer = StringBuilder()
-            val reasoning = StringBuilder()
+            val reply = StringBuilder()
+            val started = SystemClock.elapsedRealtime()
+            var firstTokenAt = 0L
+            var chunks = 0
+            var lastPublish = 0L
             try {
+                // A stopped reply may still be winding down in the runtime.
+                previous?.join()
+                if (freshSession) dropSession()
+                val conversation = sessionFor(convo, model)
+
                 withContext(Dispatchers.Default) {
-                    sessionFor(llm, convo).sendMessageAsync(prompt).collect { chunk ->
-                        answer.append(textOf(chunk))
-                        chunk.channels.values.forEach { reasoning.append(it) }
-                        withContext(Dispatchers.Main) {
-                            if (turn == generation) streaming = render(reasoning, answer)
+                    conversation.sendMessageAsync(prompt).collect { chunk ->
+                        val piece = textOf(chunk)
+                        if (piece.isEmpty()) return@collect
+                        val now = SystemClock.elapsedRealtime()
+                        if (firstTokenAt == 0L) firstTokenAt = now
+                        chunks++
+                        reply.append(piece)
+                        // Publishing per token re-lays-out the whole reply dozens of
+                        // times a second. A few times a second reads the same.
+                        if (now - lastPublish >= PUBLISH_EVERY_MS) {
+                            lastPublish = now
+                            val snapshot = reply.toString()
+                            withContext(Dispatchers.Main) {
+                                if (turn == generation) streaming = snapshot
+                            }
                         }
                     }
                 }
+
                 if (turn == generation) {
-                    val split = Split.of(render(reasoning, answer))
                     finish(
-                        conversationId = conversationId,
-                        text = Reply.clean(split.answer).ifEmpty { "\u2026" },
+                        conversationId,
+                        reply.toString().trim().ifEmpty { "…" },
                         isError = false,
-                        reasoning = Reply.clean(split.reasoning).ifEmpty { null }
+                        stats = statsFor(conversation, started, firstTokenAt, chunks)
                     )
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Throwable) {
-                if (turn == generation && e !is kotlinx.coroutines.CancellationException) {
+                if (turn == generation) {
                     dropSession()
                     finish(conversationId, e.message ?: e::class.java.simpleName, isError = true)
                 }
@@ -549,61 +609,84 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** The visible text of a streamed chunk. */
-    private fun textOf(message: LmMessage): String =
-        message.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
-
     /**
-     * Folds the runtime's separate reasoning channel into the `<think>` form the chat
-     * already knows how to display, so thinking stays quiet while it happens and folds
-     * away once the answer starts.
+     * Stops the reply where it is and keeps what was already written. The conversation
+     * is kept too: rebuilding it would make the model re-read the whole chat.
      */
-    private fun render(reasoning: CharSequence, answer: CharSequence): String = when {
-        reasoning.isEmpty() -> answer.toString()
-        answer.isEmpty() -> "<think>$reasoning"
-        else -> "<think>$reasoning</think>$answer"
+    fun stop() {
+        if (!busy) return
+        val conversationId = currentId ?: return
+        val partial = streaming.trim()
+        generation++
+        runCatching { session?.cancelProcess() }
+        streaming = ""
+        busy = false
+        if (partial.isNotEmpty()) {
+            replace(conversationId) {
+                it.copy(
+                    messages = it.messages + Message(partial, fromUser = false),
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+            persist()
+        }
     }
 
     /**
-     * One runtime conversation per chat, reused across turns so the model keeps its
-     * context. It is rebuilt when the chat changes, when thinking is switched, or when
-     * the chat outgrows the window — seeded with the most recent turns that fit.
+     * One runtime conversation for the open chat, reused across turns so the model
+     * keeps its context instead of re-reading the chat. It is rebuilt only for a
+     * different chat, or once this one is close to filling the window.
      */
-    private fun sessionFor(llm: Engine, convo: Conversation): LmConversation {
-        val existing = session
-        if (existing != null && sessionOwner == convo.id &&
-            sessionThinks == thinkingEnabled && !overflowed(existing, convo)
-        ) return existing
-
+    private suspend fun sessionFor(convo: Conversation, model: ModelSpec): LmConversation {
+        session?.let { existing ->
+            if (sessionOwner == convo.id && !overflowed(existing, model)) return existing
+        }
         dropSession()
+
         val history = convo.messages.dropLast(1).filterNot { it.isError }
-        val recent = trimToBudget(history, modelFor(convo))
+        val recent = trimToBudget(history, model)
         dropped = history.size - recent.size
 
-        val fresh = llm.createConversation(
+        val fresh = LocalEngine.conversation(
             ConversationConfig(
                 systemInstruction = Contents.of(systemPrompt),
                 initialMessages = recent.map {
                     if (it.fromUser) LmMessage.user(it.text) else LmMessage.model(it.text)
                 },
-                samplerConfig = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.7, seed = 0),
-                thinkingConfig = ThinkingConfig(modelFor(convo).reasoning && thinkingEnabled)
+                samplerConfig = SamplerConfig(
+                    topK = 40,
+                    topP = 0.95,
+                    temperature = 0.7,
+                    seed = (System.nanoTime() and 0x7fffffff).toInt()
+                ),
+                thinkingConfig = ThinkingConfig(false)
             )
         )
         session = fresh
         sessionOwner = convo.id
-        sessionThinks = thinkingEnabled
         return fresh
     }
 
-    /** True once the conversation is close to filling its model's window. */
-    private fun overflowed(existing: LmConversation, convo: Conversation): Boolean {
-        val used = runCatching { existing.getTokenCount() }.getOrDefault(0)
-        return used > (modelFor(convo).contextTokens * 0.8).toInt()
+    /** Closes the open conversation. Its fields are cleared before any suspension. */
+    private suspend fun dropSession() {
+        val old = session ?: return
+        session = null
+        sessionOwner = null
+        LocalEngine.closeConversation(old)
     }
 
+    /** True once the conversation is close to filling its model's window. */
+    private fun overflowed(existing: LmConversation, model: ModelSpec): Boolean {
+        val used = runCatching { existing.getTokenCount() }.getOrDefault(0)
+        return used > (model.contextTokens * 0.8).toInt()
+    }
+
+    /**
+     * The newest turns that fit in about a third of the window, leaving the rest for
+     * the reply and for the conversation to grow before it has to be rebuilt.
+     */
     private fun trimToBudget(history: List<Message>, model: ModelSpec): List<Message> {
-        var budget = (model.contextTokens * 0.5).toInt() - estimateTokens(systemPrompt)
+        var budget = (model.contextTokens * 0.3).toInt() - estimateTokens(systemPrompt)
         val kept = ArrayDeque<Message>()
         for (message in history.asReversed()) {
             val cost = estimateTokens(message.text) + 8
@@ -616,67 +699,32 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         return kept.toList()
     }
 
-    /**
-     * Stops the reply where it is and keeps what the reader has already seen. The
-     * runtime is told to cancel, and the conversation is rebuilt next turn, since it
-     * now holds a half-finished reply the chat does not.
-     */
-    fun stop() {
-        if (!busy) return
-        val conversationId = currentId ?: return
-        val split = Split.of(streaming)
-        val seconds = thoughtSeconds()
-        generation++
-        runCatching { session?.cancelProcess() }
-        job?.cancel()
-        dropSession()
-        streaming = ""
-        busy = false
+    private fun textOf(message: LmMessage): String =
+        message.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
 
-        val kept = Reply.clean(split.answer).ifEmpty { Reply.clean(split.reasoning) }
-        if (kept.isNotEmpty()) {
-            replace(conversationId) {
-                it.copy(
-                    messages = it.messages + Message(
-                        text = kept,
-                        fromUser = false,
-                        reasoning = Reply.clean(split.reasoning).ifEmpty { null },
-                        thoughtSeconds = seconds
-                    ),
-                    updatedAt = System.currentTimeMillis()
-                )
-            }
-            persist()
-        }
+    /** "0.4s to first word · 38 tok/s · GPU", preferring the runtime's own measurements. */
+    @OptIn(com.google.ai.edge.litertlm.ExperimentalApi::class)
+    private fun statsFor(conversation: LmConversation, started: Long, firstTokenAt: Long, chunks: Int): String {
+        val ended = SystemClock.elapsedRealtime()
+        val info = runCatching { conversation.getBenchmarkInfo() }.getOrNull()
+        val ttft = info?.timeToFirstTokenInSecond?.takeIf { it > 0 }
+            ?: if (firstTokenAt > 0) (firstTokenAt - started) / 1000.0 else 0.0
+        val rate = info?.lastDecodeTokensPerSecond?.takeIf { it > 0 }
+            ?: if (firstTokenAt in 1 until ended) chunks * 1000.0 / (ended - firstTokenAt) else 0.0
+        return String.format(Locale.US, "%.1fs to first word · %.0f tok/s · %s", ttft, rate, backend.name)
     }
 
-    private fun finish(
-        conversationId: String,
-        text: String,
-        isError: Boolean,
-        reasoning: String? = null
-    ) {
-        val seconds = thoughtSeconds()
+    private fun finish(conversationId: String, text: String, isError: Boolean, stats: String? = null) {
         streaming = ""
         busy = false
         replace(conversationId) {
             it.copy(
-                messages = it.messages + Message(
-                    text = text,
-                    fromUser = false,
-                    isError = isError,
-                    reasoning = reasoning,
-                    thoughtSeconds = if (reasoning != null) seconds else 0
-                ),
+                messages = it.messages + Message(text, fromUser = false, isError = isError, stats = stats),
                 updatedAt = System.currentTimeMillis()
             )
         }
         persist()
     }
-
-    private fun thoughtSeconds(): Int =
-        if (turnStartedAt == 0L) 0
-        else ((System.currentTimeMillis() - turnStartedAt) / 1000).toInt()
 
     /* ---------- plumbing ---------- */
 
@@ -690,15 +738,26 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         if (index > 0) conversations.add(0, conversations.removeAt(index))
     }
 
-    private fun persist() = chats.save(conversations.toList())
+    /** Saves off the main thread, in order, and outlives this screen. */
+    private fun persist() {
+        val snapshot = conversations.toList()
+        LocalEngine.scope.launch(LocalEngine.saves) { chats.save(snapshot) }
+    }
 
     override fun onCleared() {
         super.onCleared()
-        closeEngine()
+        // The engine stays loaded for the next screen. Only the conversation goes.
+        val old = session ?: return
+        if (busy) runCatching { old.cancelProcess() }
+        session = null
+        sessionOwner = null
+        LocalEngine.scope.launch { LocalEngine.closeConversation(old) }
     }
 
     companion object {
-        /** Rough for English, deliberately pessimistic so we under-fill. */
+        private const val PUBLISH_EVERY_MS = 60L
+
+        /** Rough for English, deliberately pessimistic so the history under-fills. */
         fun estimateTokens(text: String): Int = (text.length / 3.2).toInt() + 1
     }
 }

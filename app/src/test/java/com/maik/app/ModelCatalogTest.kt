@@ -70,11 +70,12 @@ class ModelCatalogTest {
     @Test
     fun `an unknown or missing id falls back to the default`() {
         assertEquals(Models.DEFAULT, Models.byId(null))
-        assertEquals(Models.QWEN_3_5_2B, Models.byId(Models.QWEN_3_5_2B.id))
+        assertEquals(Models.LFM_2_5_1_2B, Models.byId(Models.LFM_2_5_1_2B.id))
         // Chats pinned to models that were removed must still open.
         listOf(
             "deepseek-r1-distill-1.5b-q8",
             "qwen2.5-1.5b-instruct-q8",
+            "qwen3.5-2b-int8",
             "phi-4-mini-q8",
             "tinyllama-1.1b-q8"
         ).forEach { assertEquals(it, Models.DEFAULT, Models.byId(it)) }

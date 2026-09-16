@@ -122,9 +122,15 @@ private fun ChatScreen(vm: ChatViewModel) {
     val count = convo.messages.size
     var pickingModel by remember { mutableStateOf(false) }
 
-    LaunchedEffect(count, vm.busy, vm.streaming.length) {
-        val items = count + if (vm.busy) 1 else 0
-        if (items > 0) listState.animateScrollToItem(items - 1)
+    // A new message scrolls into view once. While a reply streams, follow it only if
+    // the reader is already at the bottom — never drag them down while they read.
+    LaunchedEffect(count) {
+        if (count > 0) listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1)
+    }
+    val streamingLength = vm.streaming.length
+    LaunchedEffect(streamingLength) {
+        if (vm.busy && !listState.canScrollForward) return@LaunchedEffect
+        if (vm.busy) listState.scrollToItem(listState.layoutInfo.totalItemsCount - 1, Int.MAX_VALUE)
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -160,27 +166,18 @@ private fun ChatScreen(vm: ChatViewModel) {
                 item { ContextNotice(vm.dropped) }
             }
 
-            items(convo.messages) { msg ->
-                RisesIn(key = msg.at) {
-                    Column {
-                        Bubble(msg)
-                        if (!msg.reasoning.isNullOrBlank()) {
-                            ReasoningTrace(msg.reasoning, msg.thoughtSeconds)
-                        }
-                    }
+            items(convo.messages, key = { it.at }, contentType = { if (it.fromUser) 0 else 1 }) { msg ->
+                Column {
+                    Bubble(msg)
+                    if (vm.debugMode && msg.stats != null) SpeedLine(msg.stats)
                 }
             }
 
             if (vm.busy) {
-                item {
-                    val live = vm.live
-                    when {
-                        live.stillThinking -> ThinkingCard(live.reasoning, vm.turnStartedAt)
-                        live.answer.isNotEmpty() ->
-                            Bubble(Message(Reply.clean(live.answer), fromUser = false))
-
-                        else -> TypingDots()
-                    }
+                item(key = "live", contentType = 2) {
+                    val text = vm.streaming
+                    if (text.isEmpty()) TypingDots()
+                    else Bubble(Message(text, fromUser = false))
                 }
             }
 
@@ -207,14 +204,8 @@ private fun ChatScreen(vm: ChatViewModel) {
             )
         }
 
-        if (vm.modelFor(convo).reasoning) {
-            ThinkingSwitch(
-                on = vm.thinkingEnabled,
-                onChange = {
-                    buzz()
-                    vm.setThinking(it)
-                }
-            )
+        vm.pendingSwitch?.let { choice ->
+            if (choice.chatId == convo.id) ModelSwitchDialog(choice, vm::resolveSwitch)
         }
 
         Composer(
@@ -499,46 +490,44 @@ private fun ModelPicker(
     )
 }
 
-/**
- * Whether this model should reason before answering. It lives here rather than in
- * Settings because it changes what the next reply will be like, and that decision
- * belongs next to the thing you are about to send.
- */
+/** Shown when a chat was held with a different model from the one loaded. */
 @Composable
-private fun ThinkingSwitch(on: Boolean, onChange: (Boolean) -> Unit) {
+private fun ModelSwitchDialog(choice: ModelSwitch, onChoose: (Boolean) -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    val source = rememberPressSource()
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .pressable(source)
-            .clip(CircleShape)
-            .clickable(interactionSource = source, indication = null) { onChange(!on) }
-            .padding(horizontal = 6.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            Modifier
-                .size(7.dp)
-                .background(
-                    if (on) scheme.primary else scheme.onSurfaceVariant.copy(alpha = 0.3f),
-                    CircleShape
-                )
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            if (on) "Thinks before answering" else "Answers straight away",
-            style = MaterialTheme.typography.labelSmall,
-            color = scheme.onSurfaceVariant.copy(alpha = 0.45f)
-        )
-        Spacer(Modifier.weight(1f))
-        Text(
-            if (on) "Turn off" else "Turn on",
-            style = MaterialTheme.typography.labelSmall,
-            color = scheme.primary
-        )
-    }
+    AlertDialog(
+        onDismissRequest = { onChoose(false) },
+        containerColor = scheme.surfaceVariant,
+        title = { DialogTitle("This chat used ${choice.chatModel.label}") },
+        text = {
+            Text(
+                "${choice.loaded.label} is loaded right now. Switching reloads the model, " +
+                    "which takes a moment.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurfaceVariant.copy(alpha = 0.7f)
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onChoose(true) }) {
+                Text("Switch to ${choice.chatModel.label}", color = scheme.primary)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { onChoose(false) }) {
+                Text("Keep ${choice.loaded.label}", color = scheme.onSurfaceVariant)
+            }
+        }
+    )
+}
+
+/** Speed figures under a reply, in debug mode only. */
+@Composable
+private fun SpeedLine(stats: String) {
+    Text(
+        stats,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+        modifier = Modifier.padding(start = 8.dp, top = 4.dp)
+    )
 }
 
 /* ================= shared ================= */

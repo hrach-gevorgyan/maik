@@ -34,7 +34,7 @@ Download the APK from [**Releases**](https://github.com/hrach-gevorgyan/maik/rel
 and open it on your phone. You will need "install unknown apps" enabled for whatever
 you open it from.
 
-On first launch it fetches a model — around 2.4 GB, once, over Wi-Fi. That is the
+On first launch it fetches a model — around 2.6 GB, once, over Wi-Fi. If the download is interrupted it continues where it stopped. That is the
 only download it will ever ask for.
 
 > **Note**
@@ -51,7 +51,6 @@ only download it will ever ask for.
 | **Streaming replies** | Words arrive as they are generated. Stop mid-sentence and whatever was written is kept |
 | **Markdown** | Headings, lists, bold, inline code, and code blocks that scroll rather than stretch the screen |
 | **Regenerate** | Ask again from the same point when an answer misses |
-| **Visible thinking** | A quiet indicator while a model reasons; the reasoning itself folds away into a line you can expand |
 | **A model per chat** | Switch from the chat header. Each conversation keeps the model it started with |
 | **Instructions** | A standing note handed to the model before every conversation, editable in Settings |
 | **Light and dark** | Or follow the system. Colours crossfade rather than snap |
@@ -63,8 +62,8 @@ Two ungated models, both built to run on a phone.
 
 | Model | Download | License | Character |
 |---|---|---|---|
-| **Gemma 4 E2B** — default | 2.4 GB | Apache 2.0 | Google's on-device model. The most capable here |
-| **Qwen3.5 2B** | 2.0 GB | Apache 2.0 | Smaller download, quick, can think before answering |
+| **Gemma 4 E2B** — default | 2.6 GB | Apache 2.0 | Google's on-device model. The most capable here |
+| **LFM2.5 1.2B** | 0.7 GB | LFM Open License | A third of the download, quick, easy on the battery |
 
 Switch from the chat header or in Settings. Each stays on disk once fetched.
 
@@ -116,8 +115,8 @@ A `.litertlm` model running on **LiteRT-LM**, entirely inside the app's own proc
 | | |
 |---|---|
 | Runtime | `com.google.ai.edge.litertlm:litertlm-android` |
-| Context | 4096 tokens |
-| Backend | CPU by default; GPU is opt-in under Settings → Behaviour |
+| Context | 2048 tokens — the runtime decodes faster with a smaller budget |
+| Backend | GPU by default on Snapdragon 8 Gen 3 and newer, CPU elsewhere; switchable under Settings → Behaviour |
 | Storage | App-private. Uninstalling removes everything |
 
 <details>
@@ -130,8 +129,12 @@ stop tokens, and LiteRT-LM applies them. maik sends plain text and the conversat
 history; it never builds a prompt by hand. Doing that on the previous runtime is what
 produced garbled, rambling replies in 1.4 and 1.5.
 
-**One runtime conversation per chat.** It keeps the model's context between turns.
-Reopening a chat seeds a fresh one with the most recent turns that fit the window.
+**One engine for the whole app.** The loaded model belongs to the process, not to a
+screen, so rotating the phone or reopening the app does not reload 2.6 GB. Every native
+call runs on a single thread, so two loads can never overlap.
+
+**One runtime conversation per chat.** It keeps the model's context between turns, and
+survives Stop. Reopening a chat seeds a fresh one with the most recent turns that fit.
 
 **Stop really stops.** Generation is cancelled in the runtime, not merely ignored.
 
@@ -139,8 +142,11 @@ Reopening a chat seeds a fresh one with the most recent turns that fit the windo
 which no `catch` can see. It is off by default, and a breadcrumb written before each
 attempt means a crash during load turns it back off by itself.
 
-**Downloads land in a `.part` file**, are checked for the `LITERTLM` header, and only
-then renamed. A dropped connection or an error page can never pass for a model.
+**Downloads resume.** They land in a `.part` file and continue from where they stopped;
+only a complete file with the `LITERTLM` header is renamed into place.
+
+**Chats are saved atomically**, off the main thread. A crash mid-save leaves the previous
+history intact instead of wiping it.
 
 </details>
 
@@ -270,7 +276,7 @@ app/src/main/java/com/maik/app/
 
 Typeface [Hanken Grotesk](https://github.com/hanken-design/HK-Grotesk) by Hanken Design Co., SIL OFL 1.1<br>
 Models [Gemma 4](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm)
-and [Qwen3.5](https://huggingface.co/litert-community/Qwen3.5-2B),
+and [LFM2.5](https://huggingface.co/litert-community/LFM2.5-1.2B-Instruct),
 converted to LiteRT-LM by [litert-community](https://huggingface.co/litert-community)
 
 </sub>

@@ -502,16 +502,13 @@ private fun BrokenState(vm: ChatViewModel, stage: Stage.Broken, onRefetch: () ->
         }
 
         Spacer(Modifier.height(26.dp))
-        if (stage.refetch) {
-            BigButton("Download again") {
-                vm.deleteModel()
-                onRefetch()
-            }
-            Spacer(Modifier.height(12.dp))
-            QuietAction("Try a different model", vm::openSettings)
-        } else {
-            BigButton("Try again", onClick = vm::retry)
+        when (stage.fix) {
+            Fix.RESUME_DOWNLOAD -> BigButton("Continue download", onClick = onRefetch)
+            Fix.REDOWNLOAD -> BigButton("Download again", onClick = vm::retry)
+            Fix.RETRY_LOAD -> BigButton("Try again", onClick = vm::retry)
         }
+        Spacer(Modifier.height(12.dp))
+        QuietAction("Try a different model", vm::openSettings)
     }
 }
 
