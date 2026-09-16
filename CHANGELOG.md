@@ -7,6 +7,38 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 1.9.0 — 17 September 2026
+
+**The chat stays on screen.**
+
+- **No more swapping to a setup page.** Opening a chat while the model is loading,
+  missing, downloading or broken now shows a strip above the messages saying what's
+  happening, with the one button that helps: Download, View, Try again, or Use CPU
+  instead. The message box waits until the model is ready.
+- **One Models page.** Each model shows its size, context, whether it's in use, a
+  memory warning if your phone looks too small for it, and a single action —
+  Download, View download, Use for new chats, or Delete.
+- **Deleting asks first**, for both chats and models.
+- **"Jump to latest"** appears when you scroll up while a reply is coming in, instead
+  of the list pulling you back down.
+- **"Try again"** under a reply that failed.
+- **First launch** opens on setup, with "Not now" instead of a Back button that led
+  nowhere. "Choose a different model" goes straight to the model list.
+
+### Fixed
+
+- The chat list could crash when a reply and an error were stamped in the same
+  millisecond.
+- Settings said a model was "in use" before anything was downloaded.
+- A new chat said the model was running while the strip above said it wasn't there.
+
+### Accessibility
+
+- Secondary text is darker and readable in both themes.
+- Buttons and icon buttons are at least 48dp, and icons have spoken labels.
+
+---
+
 ## 1.8.0 — 17 September 2026
 
 **Faster, steadier, and it stops losing things.**

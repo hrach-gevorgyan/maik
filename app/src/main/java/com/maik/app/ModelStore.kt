@@ -34,7 +34,9 @@ data class ModelSpec(
      * Upper bound on prompt plus reply, in tokens. Kept modest on purpose: the
      * runtime decodes more slowly as this budget grows.
      */
-    val contextTokens: Int
+    val contextTokens: Int,
+    /** Below this much total RAM, the model is likely to be killed or crawl. Guidance only. */
+    val minRamBytes: Long
 ) {
     val fileName: String get() = "$id.litertlm"
     val approxMb: Long get() = approxBytes / 1024 / 1024
@@ -49,7 +51,8 @@ object Models {
         url = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/" +
             "resolve/main/gemma-4-E2B-it.litertlm",
         approxBytes = 2_588_147_712L,
-        contextTokens = 2048
+        contextTokens = 2048,
+        minRamBytes = 6L * 1024 * 1024 * 1024
     )
 
     val LFM_2_5_1_2B = ModelSpec(
@@ -60,7 +63,8 @@ object Models {
         url = "https://huggingface.co/litert-community/LFM2.5-1.2B-Instruct/" +
             "resolve/main/LFM2.5-1.2B-Instruct_int4.litertlm",
         approxBytes = 736_015_744L,
-        contextTokens = 2048
+        contextTokens = 2048,
+        minRamBytes = 4L * 1024 * 1024 * 1024
     )
 
     val ALL = listOf(GEMMA_4_E2B, LFM_2_5_1_2B)

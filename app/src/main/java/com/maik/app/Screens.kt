@@ -50,6 +50,7 @@ fun ConversationListScreen(vm: ChatViewModel) {
     val buzz = tap()
     var menuFor by remember { mutableStateOf<Conversation?>(null) }
     var renaming by remember { mutableStateOf<Conversation?>(null) }
+    var confirmDelete by remember { mutableStateOf<Conversation?>(null) }
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -62,7 +63,7 @@ fun ConversationListScreen(vm: ChatViewModel) {
             Spacer(Modifier.width(12.dp))
             OnDevicePill()
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = vm::openSettings) { Sliders(scheme.onBackground) }
+            IconButton(description = "Settings", onClick = vm::openSettings) { Sliders(scheme.onBackground) }
         }
         HorizontalLine()
 
@@ -86,7 +87,7 @@ fun ConversationListScreen(vm: ChatViewModel) {
                     Text(
                         "Nothing matches \"${vm.query.trim()}\"",
                         style = MaterialTheme.typography.bodyLarge,
-                        color = scheme.onSurfaceVariant.copy(alpha = 0.45f)
+                        color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                     )
                 }
 
@@ -138,9 +139,35 @@ fun ConversationListScreen(vm: ChatViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = {
-                    vm.delete(convo.id)
+                    confirmDelete = convo
                     menuFor = null
                 }) { Text("Delete", color = scheme.error) }
+            }
+        )
+    }
+
+    confirmDelete?.let { convo ->
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            containerColor = scheme.surfaceVariant,
+            title = { DialogTitle("Delete this chat?") },
+            text = {
+                Text(
+                    "\"${convo.title}\" and its ${convo.messages.size} messages will be gone for good.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.delete(convo.id)
+                    confirmDelete = null
+                }) { Text("Delete", color = scheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = null }) {
+                    Text("Cancel", color = scheme.onSurfaceVariant)
+                }
             }
         )
     }
@@ -208,7 +235,7 @@ private fun EmptyList() {
                 Text(
                     "No conversations yet.\nEverything you start stays on this phone.",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f)
                 )
             }
         }
@@ -242,7 +269,7 @@ private fun ConversationRow(
                 Text(
                     convo.preview,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = scheme.onSurfaceVariant.copy(alpha = 0.42f),
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.64f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -252,7 +279,7 @@ private fun ConversationRow(
         Text(
             relativeTime(convo.updatedAt),
             style = MaterialTheme.typography.labelSmall,
-            color = scheme.onSurfaceVariant.copy(alpha = 0.3f)
+            color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
         )
     }
 }
@@ -309,10 +336,10 @@ fun SetupScreen(vm: ChatViewModel) {
                     Text(
                         "Wi-Fi recommended. Nothing you type is ever uploaded.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = scheme.onSurfaceVariant.copy(alpha = 0.35f)
+                        color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                     )
                     Spacer(Modifier.height(20.dp))
-                    QuietAction("Choose a different model", vm::openSettings)
+                    QuietAction("Choose a different model", vm::openModels)
                 }
             }
 
@@ -331,7 +358,7 @@ fun SetupScreen(vm: ChatViewModel) {
                         if (started) "${s.bytes / 1024 / 1024} / ${s.total / 1024 / 1024} MB"
                         else "Connecting",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = scheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                     )
                     Spacer(Modifier.weight(1f))
                     if (started) {
@@ -346,7 +373,7 @@ fun SetupScreen(vm: ChatViewModel) {
                 Text(
                     "Keeps going if you lock the screen or leave the app.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = scheme.onSurfaceVariant.copy(alpha = 0.35f)
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                 )
                 Spacer(Modifier.height(22.dp))
                 OutlineButton("Cancel", vm::cancelDownload)
@@ -362,7 +389,7 @@ fun SetupScreen(vm: ChatViewModel) {
                 Text(
                     "First load takes a moment. It's quicker after this.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = scheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                 )
                 Spacer(Modifier.height(20.dp))
                 TypingDots()
@@ -384,7 +411,7 @@ fun SetupScreen(vm: ChatViewModel) {
                         "It lives on this phone now. You can turn the network off " +
                             "and it will keep answering.",
                         style = MaterialTheme.typography.bodyLarge,
-                        color = scheme.onSurfaceVariant.copy(alpha = 0.55f)
+                        color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                     )
                     Spacer(Modifier.height(26.dp))
                     BigButton("Start chatting", onClick = vm::acknowledgeInstall)
@@ -394,7 +421,7 @@ fun SetupScreen(vm: ChatViewModel) {
 
         if (vm.stage !is Stage.Ready) {
             Spacer(Modifier.height(24.dp))
-            QuietAction("Back", vm::openList)
+            QuietAction(if (vm.conversations.isEmpty()) "Not now" else "Back", vm::openList)
         }
     }
 
@@ -496,7 +523,7 @@ private fun BrokenState(vm: ChatViewModel, stage: Stage.Broken, onRefetch: () ->
                     // first line is the only part that ever means anything.
                     stage.detail.lineSequence().first().take(240),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = scheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                 )
             }
         }
@@ -508,7 +535,7 @@ private fun BrokenState(vm: ChatViewModel, stage: Stage.Broken, onRefetch: () ->
             Fix.RETRY_LOAD -> BigButton("Try again", onClick = vm::retry)
         }
         Spacer(Modifier.height(12.dp))
-        QuietAction("Try a different model", vm::openSettings)
+        QuietAction("Try a different model", vm::openModels)
     }
 }
 
@@ -548,7 +575,7 @@ private fun SpecRow(label: String, value: String) {
         Text(
             label,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f),
             modifier = Modifier.width(78.dp)
         )
         Text(
@@ -618,7 +645,7 @@ private fun SearchField(value: String, onValueChange: (String) -> Unit) {
             Text(
                 "Search conversations",
                 style = MaterialTheme.typography.bodyMedium,
-                color = scheme.onSurfaceVariant.copy(alpha = 0.35f)
+                color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
             )
         }
         BasicTextField(

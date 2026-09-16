@@ -35,6 +35,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,12 +105,9 @@ private fun Root(vm: ChatViewModel = viewModel()) {
                         Screen.List -> ConversationListScreen(vm)
                         Screen.Settings -> SettingsScreen(vm)
                         Screen.Setup -> SetupScreen(vm)
-                        Screen.Chat -> when {
-                            // A finished download says so before dropping you in.
-                            vm.justInstalled -> SetupScreen(vm)
-                            vm.stage is Stage.Ready -> ChatScreen(vm)
-                            else -> SetupScreen(vm)
-                        }
+                        // The chat stays on screen whatever the model is doing; its
+                        // state shows as a strip above the messages instead.
+                        Screen.Chat -> ChatScreen(vm)
                     }
                 }
             }
@@ -122,15 +127,19 @@ private fun ChatScreen(vm: ChatViewModel) {
     val count = convo.messages.size
     var pickingModel by remember { mutableStateOf(false) }
 
+    val atBottom by remember { derivedStateOf { !listState.canScrollForward } }
+    val scope = rememberCoroutineScope()
+
     // A new message scrolls into view once. While a reply streams, follow it only if
-    // the reader is already at the bottom — never drag them down while they read.
+    // the reader was already at the bottom — never drag them down while they read.
     LaunchedEffect(count) {
         if (count > 0) listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1)
     }
     val streamingLength = vm.streaming.length
     LaunchedEffect(streamingLength) {
-        if (vm.busy && !listState.canScrollForward) return@LaunchedEffect
-        if (vm.busy) listState.scrollToItem(listState.layoutInfo.totalItemsCount - 1, Int.MAX_VALUE)
+        if (vm.busy && atBottom) {
+            listState.scrollToItem(listState.layoutInfo.totalItemsCount - 1, Int.MAX_VALUE)
+        }
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -142,32 +151,40 @@ private fun ChatScreen(vm: ChatViewModel) {
                 Text(
                     vm.modelFor(convo).label,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     modifier = Modifier
+                        .heightIn(min = 48.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .clickable(enabled = !vm.busy) { pickingModel = true }
-                        .padding(horizontal = 8.dp, vertical = 5.dp)
+                        .clickable(enabled = !vm.busy, onClickLabel = "Change model") { pickingModel = true }
+                        .padding(horizontal = 10.dp, vertical = 14.dp)
                 )
             }
         )
 
+        StatusStrip(vm, vm.modelFor(convo))
+
+        Box(Modifier.weight(1f)) {
         LazyColumn(
             state = listState,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth(),
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             if (convo.messages.isEmpty() && !vm.busy) {
-                item { ChatEmptyState(vm.modelFor(convo).label) }
+                item(key = "empty") { ChatEmptyState(vm.modelFor(convo).label, ready = vm.stage is Stage.Ready) }
             }
             if (vm.dropped > 0) {
-                item { ContextNotice(vm.dropped) }
+                item(key = "dropped") { ContextNotice(vm.dropped) }
             }
 
-            items(convo.messages, key = { it.at }, contentType = { if (it.fromUser) 0 else 1 }) { msg ->
-                Column {
+            // Keyed by position as well as time: a reply and an error can be stamped in
+            // the same millisecond, and duplicate keys crash the list.
+            itemsIndexed(
+                convo.messages,
+                key = { index, msg -> "$index-${msg.at}" },
+                contentType = { _, msg -> if (msg.fromUser) 0 else 1 }
+            ) { _, msg ->
+                Column(Modifier.animateItem()) {
                     Bubble(msg)
                     if (vm.debugMode && msg.stats != null) SpeedLine(msg.stats)
                 }
@@ -182,14 +199,41 @@ private fun ChatScreen(vm: ChatViewModel) {
             }
 
             // Offered only when there is something to replace, and nothing running.
-            if (!vm.busy && convo.messages.lastOrNull()?.fromUser == false) {
-                item {
-                    QuietAction("Regenerate") {
+            val last = convo.messages.lastOrNull()
+            if (!vm.busy && last?.fromUser == false && vm.stage is Stage.Ready) {
+                item(key = "again") {
+                    QuietAction(if (last.isError) "Try again" else "Regenerate") {
                         buzz()
                         vm.regenerate()
                     }
                 }
             }
+        }
+
+        // Scrolled up while a reply grows below: offer the way back rather than
+        // pulling the reader down.
+        androidx.compose.animation.AnimatedVisibility(
+            visible = !atBottom && count > 0,
+            enter = fadeIn(tween(Motion.QUICK)),
+            exit = fadeOut(tween(Motion.QUICK)),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 12.dp)
+        ) {
+            Text(
+                "Jump to latest",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary)
+                    .clickable {
+                        scope.launch { listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1) }
+                    }
+                    .padding(horizontal = 18.dp, vertical = 14.dp)
+            )
+        }
         }
 
         if (pickingModel) {
@@ -212,6 +256,7 @@ private fun ChatScreen(vm: ChatViewModel) {
             value = input,
             onValueChange = { input = it },
             busy = vm.busy,
+            ready = vm.stage is Stage.Ready,
             onSend = {
                 buzz()
                 vm.send(input)
@@ -225,15 +270,124 @@ private fun ChatScreen(vm: ChatViewModel) {
     }
 }
 
+/**
+ * What the model is doing, above the messages, with the one action that helps. The
+ * chat itself never disappears behind a setup page.
+ */
 @Composable
-private fun ChatEmptyState(modelLabel: String) {
+private fun StatusStrip(vm: ChatViewModel, model: ModelSpec) {
+    val scheme = MaterialTheme.colorScheme
+    val stage = vm.stage
+
+    androidx.compose.animation.AnimatedVisibility(
+        visible = stage !is Stage.Ready,
+        enter = fadeIn(tween(Motion.NORMAL)),
+        exit = fadeOut(tween(Motion.NORMAL))
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .background(scheme.surfaceVariant)
+                .padding(horizontal = 20.dp, vertical = 12.dp)
+        ) {
+            when (stage) {
+                is Stage.Loading -> {
+                    var seconds by remember(vm.loadStartedAt) { mutableIntStateOf(0) }
+                    LaunchedEffect(vm.loadStartedAt) {
+                        while (true) {
+                            seconds = ((android.os.SystemClock.elapsedRealtime() - vm.loadStartedAt) / 1000).toInt()
+                            delay(1000)
+                        }
+                    }
+                    StripText("Loading ${vm.target.label}" + if (seconds > 2) " · ${seconds}s" else "")
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = scheme.primary,
+                        trackColor = scheme.outline
+                    )
+                }
+
+                is Stage.Downloading -> {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        StripText(
+                            "Downloading ${vm.target.label} · ${(stage.fraction * 100).toInt()}%",
+                            Modifier.weight(1f)
+                        )
+                        StripAction("View", vm::showDownload)
+                    }
+                    LinearProgressIndicator(
+                        progress = { stage.fraction },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = scheme.primary,
+                        trackColor = scheme.outline
+                    )
+                }
+
+                is Stage.NeedsModel -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    StripText("${model.label} isn't on this phone yet.", Modifier.weight(1f))
+                    StripAction("Download") { vm.openDownload(model) }
+                }
+
+                is Stage.Broken -> {
+                    Text(
+                        stage.summary,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.error
+                    )
+                    Row {
+                        when (stage.fix) {
+                            Fix.RETRY_LOAD -> StripAction("Try again", vm::retry)
+                            Fix.RESUME_DOWNLOAD -> StripAction("Continue download") { vm.openDownload(vm.target) }
+                            Fix.REDOWNLOAD -> StripAction("Download again", vm::retry)
+                        }
+                        if (vm.useGpu && stage.fix == Fix.RETRY_LOAD) {
+                            StripAction("Use CPU instead") { vm.updateUseGpu(false) }
+                        }
+                    }
+                }
+
+                Stage.Ready -> Unit
+            }
+        }
+    }
+}
+
+@Composable
+private fun StripText(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun StripAction(label: String, onClick: () -> Unit) {
+    Text(
+        label,
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 14.dp)
+    )
+}
+
+@Composable
+private fun ChatEmptyState(modelLabel: String, ready: Boolean) {
     Column(Modifier.padding(top = 40.dp, bottom = 24.dp)) {
         Wordmark(size = 44)
         Spacer(Modifier.height(10.dp))
         Text(
-            "Running $modelLabel on this phone. Nothing you type leaves it.",
+            // Only claim the model is running when it is; the strip above covers the rest.
+            if (ready) "Running $modelLabel on this phone. Nothing you type leaves it."
+            else "Everything here stays on this phone. You can start as soon as $modelLabel is ready.",
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f)
         )
     }
 }
@@ -294,7 +448,7 @@ private fun ContextNotice(dropped: Int) {
             "$dropped earlier message${if (dropped == 1) "" else "s"} " +
                 "no longer fit in the model's memory",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f)
         )
     }
 }
@@ -344,11 +498,12 @@ private fun Composer(
     value: String,
     onValueChange: (String) -> Unit,
     busy: Boolean,
+    ready: Boolean,
     onSend: () -> Unit,
     onStop: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
-    val enabled = !busy
+    val enabled = !busy && ready
     val canSend = value.isNotBlank() && enabled
 
     Row(
@@ -368,9 +523,13 @@ private fun Composer(
         ) {
             if (value.isEmpty()) {
                 Text(
-                    if (busy) "maik is answering…" else "Ask maik anything…",
+                    when {
+                        busy -> "maik is answering…"
+                        !ready -> "Waiting for the model…"
+                        else -> "Ask maik anything…"
+                    },
                     style = MaterialTheme.typography.bodyLarge,
-                    color = scheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                 )
             }
             BasicTextField(
@@ -392,10 +551,11 @@ private fun Composer(
         )
         Box(
             Modifier
-                .size(50.dp)
+                .size(52.dp)
                 .pressable(source)
                 .clip(CircleShape)
                 .background(bg)
+                .semantics { contentDescription = if (busy) "Stop" else "Send" }
                 .clickable(
                     enabled = canSend || busy,
                     interactionSource = source,
@@ -414,7 +574,7 @@ private fun Composer(
                 } else {
                     ArrowUp(
                         if (canSend) scheme.onPrimary
-                        else scheme.onSurfaceVariant.copy(alpha = 0.35f)
+                        else scheme.onSurfaceVariant.copy(alpha = 0.4f)
                     )
                 }
             }
@@ -476,7 +636,7 @@ private fun ModelPicker(
                             if (model.id in installed) "ready" else "${model.approxMb} MB",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (model.id in installed) scheme.primary
-                            else scheme.onSurfaceVariant.copy(alpha = 0.35f)
+                            else scheme.onSurfaceVariant.copy(alpha = 0.64f)
                         )
                     }
                 }
@@ -525,7 +685,7 @@ private fun SpeedLine(stats: String) {
     Text(
         stats,
         style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f),
         modifier = Modifier.padding(start = 8.dp, top = 4.dp)
     )
 }
@@ -592,8 +752,9 @@ fun TopBar(
         if (onBack != null) {
             Box(
                 Modifier
-                    .size(40.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
+                    .semantics { contentDescription = "Back" }
                     .clickable(onClick = onBack),
                 contentAlignment = Alignment.Center
             ) { ChevronLeft(MaterialTheme.colorScheme.onBackground) }
@@ -649,7 +810,7 @@ fun BigButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
         Text(
             label,
             style = MaterialTheme.typography.labelLarge,
-            color = if (enabled) scheme.onPrimary else scheme.onSurfaceVariant.copy(alpha = 0.4f)
+            color = if (enabled) scheme.onPrimary else scheme.onSurfaceVariant.copy(alpha = 0.64f)
         )
     }
 }
@@ -661,7 +822,7 @@ fun QuietAction(label: String, onClick: () -> Unit) {
         Text(
             label,
             style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f),
             modifier = Modifier
                 .clip(CircleShape)
                 .border(
@@ -698,13 +859,14 @@ fun OutlineButton(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-fun IconButton(onClick: () -> Unit, content: @Composable () -> Unit) {
+fun IconButton(description: String, onClick: () -> Unit, content: @Composable () -> Unit) {
     val source = rememberPressSource()
     Box(
         Modifier
-            .size(40.dp)
+            .size(48.dp)
             .pressable(source)
             .clip(CircleShape)
+            .semantics { contentDescription = description }
             .clickable(interactionSource = source, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center
     ) { content() }

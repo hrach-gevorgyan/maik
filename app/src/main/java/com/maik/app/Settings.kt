@@ -18,6 +18,7 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,7 +61,10 @@ private data class Entry(
 )
 
 private val ENTRIES = listOf(
-    Entry(SettingsPage.Models, "Model") { it.spec.label },
+    Entry(SettingsPage.Models, "Models") {
+        if (it.spec.id in it.installedModels()) "${it.spec.label} in use"
+        else "Nothing downloaded yet"
+    },
     Entry(SettingsPage.Instructions, "Instructions") {
         it.systemPrompt.replace('\n', ' ').take(46).trim() + "…"
     },
@@ -117,14 +121,14 @@ private fun MenuRow(title: String, detail: String, onClick: () -> Unit) {
             Text(
                 detail,
                 style = MaterialTheme.typography.bodyMedium,
-                color = scheme.onSurfaceVariant.copy(alpha = 0.42f),
+                color = scheme.onSurfaceVariant.copy(alpha = 0.64f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
         Spacer(Modifier.width(12.dp))
         Box(Modifier.rotate(180f)) {
-            ChevronLeft(scheme.onSurfaceVariant.copy(alpha = 0.3f))
+            ChevronLeft(scheme.onSurfaceVariant.copy(alpha = 0.64f))
         }
     }
 }
@@ -133,87 +137,163 @@ private fun MenuRow(title: String, detail: String, onClick: () -> Unit) {
 
 @Composable
 private fun ModelsPage(vm: ChatViewModel) {
+    val scheme = MaterialTheme.colorScheme
     val installed = remember(vm.storageVersion) { vm.installedModels() }
+    val ram = remember { vm.totalRamBytes() }
+    var confirmDelete by remember { mutableStateOf<ModelSpec?>(null) }
+
     Column(Modifier.fillMaxSize()) {
-        TopBar(title = "Model", onBack = { vm.openSettingsPage(SettingsPage.Root) })
+        TopBar(title = "Models", onBack = { vm.openSettingsPage(SettingsPage.Root) })
         LazyColumn(contentPadding = PaddingValues(20.dp)) {
             item {
                 Text(
-                    "New chats use this one. Existing chats keep the model they " +
-                        "started with — switch that from the chat's own header.",
+                    "New chats use the model marked in use. Each model is downloaded once " +
+                        "and works offline after that.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                    color = scheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(18.dp))
             }
-            items(Models.ALL) { model ->
-                ModelCard(
+            items(Models.ALL, key = { it.id }) { model ->
+                ModelRow(
+                    vm = vm,
                     model = model,
-                    selected = model.id == vm.spec.id,
-                    downloaded = model.id in installed,
-                    onClick = { vm.selectModel(model) }
+                    installed = model.id in installed,
+                    tooLittleRam = ram in 1 until model.minRamBytes,
+                    onDelete = { confirmDelete = model }
                 )
                 Spacer(Modifier.height(10.dp))
             }
-            item {
-                Spacer(Modifier.height(8.dp))
+        }
+    }
+
+    confirmDelete?.let { model ->
+        AlertDialog(
+            onDismissRequest = { confirmDelete = null },
+            containerColor = scheme.surfaceVariant,
+            title = { DialogTitle("Delete ${model.label}?") },
+            text = {
                 Text(
-                    "This is the whole list: every other on-device model worth " +
-                        "having sits behind a sign-in on Hugging Face.",
+                    "This frees ${model.approxMb} MB. Your chats stay; you would need to " +
+                        "download the model again to use it.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                    color = scheme.onSurfaceVariant
                 )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteModel(model)
+                    confirmDelete = null
+                }) { Text("Delete", color = scheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = null }) {
+                    Text("Cancel", color = scheme.onSurfaceVariant)
+                }
             }
+        )
+    }
+}
+
+/** One model, its state, and the single action that makes sense for it right now. */
+@Composable
+private fun ModelRow(
+    vm: ChatViewModel,
+    model: ModelSpec,
+    installed: Boolean,
+    tooLittleRam: Boolean,
+    onDelete: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    val downloadingId by DownloadBus.modelId.collectAsState()
+    val running by DownloadBus.running.collectAsState()
+    val progress by DownloadBus.progress.collectAsState()
+    val downloading = running && downloadingId == model.id
+    val inUse = installed && vm.spec.id == model.id
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(scheme.surface)
+            .border(
+                width = if (inUse) 2.dp else 1.dp,
+                color = if (inUse) scheme.primary else scheme.outline,
+                shape = RoundedCornerShape(18.dp)
+            )
+            .padding(18.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(model.label, style = MaterialTheme.typography.titleMedium, color = scheme.onSurface)
+            if (inUse) {
+                Spacer(Modifier.width(8.dp))
+                Tag("IN USE")
+            }
+            Spacer(Modifier.weight(1f))
+            Text(
+                "${model.approxMb} MB",
+                style = MaterialTheme.typography.labelSmall,
+                color = scheme.onSurfaceVariant
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "${model.params} · ${model.contextTokens / 1024}K context",
+            style = MaterialTheme.typography.labelSmall,
+            color = scheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(model.blurb, style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant)
+
+        if (tooLittleRam && !installed) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "This phone may not have enough memory to run it smoothly.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.error
+            )
+        }
+
+        if (downloading) {
+            val fraction = progress?.let { if (it.total > 0) it.bytes.toFloat() / it.total else 0f } ?: 0f
+            Spacer(Modifier.height(12.dp))
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier.fillMaxWidth(),
+                color = scheme.primary,
+                trackColor = scheme.outline
+            )
+        }
+
+        Spacer(Modifier.height(6.dp))
+        Row {
+            when {
+                downloading -> RowAction("View download") { vm.openDownload(model) }
+                !installed -> RowAction("Download") { vm.openDownload(model) }
+                !inUse -> RowAction("Use for new chats") { vm.selectModel(model) }
+            }
+            Spacer(Modifier.weight(1f))
+            if (installed && !downloading) RowAction("Delete", scheme.error, onDelete)
         }
     }
 }
 
 @Composable
-fun ModelCard(
-    model: ModelSpec,
-    selected: Boolean,
-    downloaded: Boolean,
+private fun RowAction(
+    label: String,
+    color: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primary,
     onClick: () -> Unit
 ) {
-    val scheme = MaterialTheme.colorScheme
-    val source = rememberPressSource()
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .pressable(source)
-            .clip(RoundedCornerShape(18.dp))
-            .background(scheme.surface)
-            .border(
-                width = if (selected) 2.dp else 1.dp,
-                color = if (selected) scheme.primary else scheme.outline,
-                shape = RoundedCornerShape(18.dp)
-            )
-            .clickable(interactionSource = source, indication = null, onClick = onClick)
-            .padding(18.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(model.label, style = MaterialTheme.typography.titleMedium, color = scheme.onSurface)
-            Spacer(Modifier.weight(1f))
-            Text(
-                if (downloaded) "ON DEVICE" else "${model.approxMb} MB",
-                style = MaterialTheme.typography.labelSmall,
-                color = if (downloaded) scheme.primary
-                else scheme.onSurfaceVariant.copy(alpha = 0.35f)
-            )
-        }
-        Spacer(Modifier.height(3.dp))
-        Text(
-            "${model.params} · ${model.contextTokens / 1024}K context",
-            style = MaterialTheme.typography.labelSmall,
-            color = scheme.onSurfaceVariant.copy(alpha = 0.28f)
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            model.blurb,
-            style = MaterialTheme.typography.bodyMedium,
-            color = scheme.onSurfaceVariant.copy(alpha = 0.45f)
-        )
-    }
+    Text(
+        label,
+        style = MaterialTheme.typography.labelLarge,
+        color = color,
+        modifier = Modifier
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 14.dp)
+    )
 }
 
 @Composable
@@ -238,7 +318,7 @@ private fun AppearancePage(vm: ChatViewModel) {
                 "Dark is the design maik was drawn for. Light exists because phones " +
                     "get used outdoors.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f)
             )
             Spacer(Modifier.height(18.dp))
 
@@ -313,7 +393,7 @@ private fun InstructionsPage(vm: ChatViewModel) {
                     "sets the tone and the ground rules, so you don't have to repeat " +
                     "yourself. Changes apply to your next message.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = scheme.onSurfaceVariant.copy(alpha = 0.45f)
+                color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
             )
             Spacer(Modifier.height(18.dp))
             EditorField(draft) { draft = it }
@@ -322,7 +402,7 @@ private fun InstructionsPage(vm: ChatViewModel) {
                 Text(
                     "${draft.length} characters",
                     style = MaterialTheme.typography.labelSmall,
-                    color = scheme.onSurfaceVariant.copy(alpha = 0.3f)
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
@@ -350,7 +430,6 @@ private fun StoragePage(vm: ChatViewModel) {
     var confirmWipe by remember { mutableStateOf(false) }
     // Reading the disk is not observable state; this is what makes a deletion
     // actually disappear from the list.
-    val installed = remember(vm.storageVersion) { vm.installedModels() }
     val onDisk = remember(vm.storageVersion) { vm.bytesOnDisk() }
 
     Column(Modifier.fillMaxSize()) {
@@ -364,36 +443,8 @@ private fun StoragePage(vm: ChatViewModel) {
                 )
                 Spacer(Modifier.height(18.dp))
             }
-            items(Models.ALL.filter { it.id in installed }) { model ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        model.label,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = scheme.onBackground,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        "${model.approxMb} MB",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = scheme.onSurfaceVariant.copy(alpha = 0.35f)
-                    )
-                    Spacer(Modifier.width(14.dp))
-                    Text(
-                        "Delete",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = scheme.error,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .clickable { vm.deleteModel(model) }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-                HorizontalLine()
+            item {
+                OutlineButton("Manage models") { vm.openSettingsPage(SettingsPage.Models) }
             }
             item {
                 Spacer(Modifier.height(24.dp))
@@ -472,7 +523,7 @@ private fun BehaviourPage(vm: ChatViewModel) {
                     Backend.NONE -> "No model is loaded yet."
                 },
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f)
             )
         }
     }
@@ -492,7 +543,7 @@ private fun AboutPage(vm: ChatViewModel) {
                     "Your conversations never leave this device, and there is no " +
                     "account, no key and no telemetry.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = scheme.onSurfaceVariant.copy(alpha = 0.5f)
+                color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
             )
             Spacer(Modifier.height(20.dp))
             LabelledValue("MODEL", vm.spec.label)
@@ -508,7 +559,7 @@ private fun LabelledValue(label: String, value: String) {
         Text(
             label,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.32f),
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f),
             modifier = Modifier.width(110.dp)
         )
         Text(
@@ -542,7 +593,7 @@ private fun ToggleRow(
             Text(
                 detail,
                 style = MaterialTheme.typography.bodyMedium,
-                color = scheme.onSurfaceVariant.copy(alpha = 0.45f)
+                color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
             )
         }
         Spacer(Modifier.width(14.dp))
@@ -552,7 +603,7 @@ private fun ToggleRow(
             colors = SwitchDefaults.colors(
                 checkedThumbColor = scheme.onPrimary,
                 checkedTrackColor = scheme.primary,
-                uncheckedThumbColor = scheme.onSurfaceVariant.copy(alpha = 0.5f),
+                uncheckedThumbColor = scheme.onSurfaceVariant.copy(alpha = 0.64f),
                 uncheckedTrackColor = scheme.surface,
                 uncheckedBorderColor = scheme.outline
             )

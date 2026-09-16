@@ -115,6 +115,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     var dropped by mutableStateOf(0)
         private set
 
+    /** When the current load began, so the status strip can show how long it's taking. */
+    var loadStartedAt by mutableStateOf(0L)
+        private set
+
     /** Asks which model to use when an opened chat was held with another one. */
     var pendingSwitch by mutableStateOf<ModelSwitch?>(null)
         private set
@@ -186,6 +190,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 stage = Stage.NeedsModel
             }
         }
+        // First launch, with nothing downloaded yet: start where the app can be set up.
+        if (stage is Stage.NeedsModel && store.installed().isEmpty() && conversations.isEmpty()) {
+            screen = Screen.Setup
+        }
         watchDownloads()
     }
 
@@ -201,6 +209,22 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         screen = Screen.Setup
     }
 
+    /** Opens the download screen for a model, without changing what new chats use. */
+    fun openDownload(model: ModelSpec) {
+        if (!(stage is Stage.Downloading && target.id == model.id)) {
+            target = model
+            if (!store.isReady(model)) stage = Stage.NeedsModel
+        }
+        screen = Screen.Setup
+    }
+
+    /** Total memory on this phone, for warning before a model that won't fit. */
+    fun totalRamBytes(): Long {
+        val manager = getApplication<Application>()
+            .getSystemService(Context.ACTIVITY_SERVICE) as? android.app.ActivityManager ?: return 0
+        return android.app.ActivityManager.MemoryInfo().also { manager.getMemoryInfo(it) }.totalMem
+    }
+
     /** Dismisses the "ready" confirmation and gets on with it. */
     fun acknowledgeInstall() {
         justInstalled = false
@@ -209,6 +233,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun openSettings() {
         settingsPage = SettingsPage.Root
+        screen = Screen.Settings
+    }
+
+    /** Straight to the model list, for "choose a different model" links. */
+    fun openModels() {
+        settingsPage = SettingsPage.Models
         screen = Screen.Settings
     }
 
@@ -410,7 +440,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                         // Only the model this screen is waiting for; a stale event must
                         // never start a second load.
                         if (event.modelId == target.id) {
-                            justInstalled = true
+                            // Only confirm on the download screen; in a chat the status
+                            // strip simply disappears once the model is ready.
+                            justInstalled = screen == Screen.Setup
                             loadEngine(target)
                         }
                     }
@@ -464,6 +496,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         if (loadingId == model.id) return
         loadingId = model.id
         target = model
+        loadStartedAt = SystemClock.elapsedRealtime()
         stage = Stage.Loading
         val previous = job
         viewModelScope.launch {

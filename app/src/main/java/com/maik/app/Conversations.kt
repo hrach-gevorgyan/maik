@@ -1,12 +1,14 @@
 package com.maik.app
 
 import android.content.Context
+import androidx.compose.runtime.Immutable
 import androidx.core.util.AtomicFile
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 
+@Immutable
 @Serializable
 data class Message(
     val text: String,
@@ -17,6 +19,7 @@ data class Message(
     val stats: String? = null
 )
 
+@Immutable
 @Serializable
 data class Conversation(
     val id: String,
