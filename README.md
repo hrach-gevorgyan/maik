@@ -185,7 +185,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 Or open the folder in Android Studio and press Run.
 
 ```bash
-./gradlew test                      # 42 unit tests
+./gradlew test                      # 40 unit tests
 ./gradlew connectedDebugAndroidTest # golden test, needs a device or emulator
 ```
 
@@ -238,18 +238,23 @@ One typeface, one accent, no decoration.
 
 ```
 app/src/main/java/com/maik/app/
-├── MainActivity.kt      navigation, chat screen, shared components, glyphs
-├── Screens.kt           conversation list and first-run setup
-├── Settings.kt          the settings menu and its pages
-├── ChatViewModel.kt     stage machine, model lifecycle, streaming, context budget
-├── ModelStore.kt        the model catalogue and a download that cannot half-succeed
-├── DownloadService.kt   foreground service, so downloads survive the lock screen
-├── Reply.kt             last-line cleanup of reply text
-├── Conversations.kt     chat model, JSON persistence, relative timestamps
-├── Markdown.kt          a small Markdown parser and renderer
-├── Thinking.kt          the reasoning indicator and its collapsible trace
-├── Motion.kt            shared transitions, press feedback, entrances
-└── Theme.kt             palette, type scale, light and dark schemes
+├── MainActivity.kt         the activity and top-level navigation
+├── ChatViewModel.kt        screen state, model lifecycle, generation
+├── engine/
+│   ├── LocalEngine.kt      the one loaded model, owned by the process
+│   └── ContextBudget.kt    how much history seeds a conversation
+├── data/
+│   ├── ModelStore.kt       model catalogue, settings, resumable downloads
+│   ├── ResumePlan.kt       whether a download continues or starts again
+│   ├── DownloadService.kt  foreground download and its event bus
+│   └── Conversations.kt    chats, atomic JSON persistence
+└── ui/
+    ├── chat/               chat screen, status strip, bubbles, composer, Markdown
+    ├── list/               conversation list and search
+    ├── setup/              first run and the download screen
+    ├── settings/           settings menu and its pages
+    ├── components/         shared buttons, bars and hand-drawn glyphs
+    └── theme/              colours, type and motion
 ```
 
 ## Known limits

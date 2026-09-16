@@ -1,15 +1,16 @@
 name: Golden
 
-# The check that would have caught 1.1.0, 1.2.0 and 1.3.0: boot a real Android
-# image, download a real model, load it, and make it produce a sentence. Unit tests
-# cannot see this class of failure, because it only exists where the bundle format
-# meets the runtime.
-# Deliberately NOT on push to main: release.yml runs this same gate on the tag,
-# and paying for two 25-minute emulator runs per change is just waste.
+# The one check unit tests cannot make: boot a real Android image, download a real
+# model, load it with the real runtime, and make it answer. Every broken release so
+# far failed exactly where a model file meets the runtime.
+#
+# It runs on pull requests, by hand, and as the gate in release.yml — not on every
+# push, because an emulator run takes the better part of half an hour.
 on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   golden:
@@ -26,6 +27,10 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      # Cheap and fast: fail before booting an emulator if a model URL has gone bad.
+      - name: Verify every offered model
+        run: python tools/verify_models.py
+
       # The emulator needs hardware acceleration to be usable at all.
       - name: Enable KVM
         run: |
@@ -34,12 +39,8 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Cache the downloaded model
-        uses: actions/cache@v4
-        with:
-          path: ~/.maik-model-cache
-          key: golden-model-smollm-135m-v1
-
+      # The test uses LFM2.5 (0.7 GB). The emulator gets room for it to download and
+      # load without the run failing on the emulator's limits instead of the app.
       - name: Run the golden test on an emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -47,7 +48,8 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
-          ram-size: 4096M
+          ram-size: 6144M
+          disk-size: 6000M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: ./gradlew connectedDebugAndroidTest --no-daemon

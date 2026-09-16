@@ -1,0 +1,6 @@
+# Keep line endings consistent in the repository whatever the checkout OS.
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
+*.jar binary
+*.ttf binary

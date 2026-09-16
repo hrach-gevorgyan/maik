@@ -37,6 +37,16 @@ when maik gains something, the last one when something gets fixed.
 - Secondary text is darker and readable in both themes.
 - Buttons and icon buttons are at least 48dp, and icons have spoken labels.
 
+### Under the hood
+
+- The code is organised by purpose — engine, data, and the screens — instead of two
+  files holding almost everything.
+- New tests cover the bugs that actually happened: a stale download event starting a
+  second load, an interrupted download restarting from zero, and a rebuilt
+  conversation overflowing its window.
+- The release check runs once, from one definition, on the lighter model, so it
+  tests the app rather than the limits of CI's emulator.
+
 ---
 
 ## 1.8.0 — 17 September 2026
