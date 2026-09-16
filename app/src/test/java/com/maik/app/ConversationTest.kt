@@ -1,5 +1,8 @@
 package com.maik.app
 
+import com.maik.app.data.*
+import com.maik.app.engine.*
+import com.maik.app.ui.chat.*
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test

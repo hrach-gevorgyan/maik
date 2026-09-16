@@ -1,15 +1,23 @@
-package com.maik.app
+package com.maik.app.engine
 
+import com.google.ai.edge.litertlm.Backend as LmBackend
+import com.google.ai.edge.litertlm.Conversation as LmConversation
 import com.google.ai.edge.litertlm.ConversationConfig
 import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
+import com.maik.app.*
+import com.maik.app.data.*
+import com.maik.app.ui.chat.*
+import com.maik.app.ui.components.*
+import com.maik.app.ui.list.*
+import com.maik.app.ui.settings.*
+import com.maik.app.ui.setup.*
+import com.maik.app.ui.theme.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
-import com.google.ai.edge.litertlm.Backend as LmBackend
-import com.google.ai.edge.litertlm.Conversation as LmConversation
 
 /**
  * The one loaded model, owned by the process rather than by a screen.

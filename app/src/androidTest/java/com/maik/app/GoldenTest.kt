@@ -1,5 +1,8 @@
 package com.maik.app
 
+import com.maik.app.data.*
+import com.maik.app.engine.*
+import com.maik.app.ui.chat.*
 import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry

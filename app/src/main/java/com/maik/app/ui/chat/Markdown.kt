@@ -1,4 +1,4 @@
-package com.maik.app
+package com.maik.app.ui.chat
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -28,6 +28,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.maik.app.*
+import com.maik.app.data.*
+import com.maik.app.engine.*
+import com.maik.app.ui.components.*
+import com.maik.app.ui.list.*
+import com.maik.app.ui.settings.*
+import com.maik.app.ui.setup.*
+import com.maik.app.ui.theme.*
 
 /**
  * Just enough Markdown for what a small model actually emits: fenced code,

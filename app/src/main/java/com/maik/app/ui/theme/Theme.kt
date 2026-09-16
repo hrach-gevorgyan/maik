@@ -1,4 +1,4 @@
-package com.maik.app
+package com.maik.app.ui.theme
 
 import android.app.Activity
 import androidx.compose.animation.animateColorAsState
@@ -21,6 +21,15 @@ import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
+import com.maik.app.*
+import com.maik.app.R
+import com.maik.app.data.*
+import com.maik.app.engine.*
+import com.maik.app.ui.chat.*
+import com.maik.app.ui.components.*
+import com.maik.app.ui.list.*
+import com.maik.app.ui.settings.*
+import com.maik.app.ui.setup.*
 
 /** HK Grotesk, shipped as a single variable font and instanced per weight. */
 @OptIn(ExperimentalTextApi::class)
@@ -54,7 +63,7 @@ private val AcidDeep = Color(0xFF4C5F00)
 private val DangerDark = Color(0xFFFF9BA6)
 private val DangerLight = Color(0xFFB3261E)
 
-private val Dark = darkColorScheme(
+internal val Dark = darkColorScheme(
     primary = Acid,
     onPrimary = Ink,
     background = Ink,
@@ -67,7 +76,7 @@ private val Dark = darkColorScheme(
     error = DangerDark
 )
 
-private val Light = lightColorScheme(
+internal val Light = lightColorScheme(
     primary = AcidDeep,
     onPrimary = Color.White,
     background = Paper,
@@ -80,7 +89,7 @@ private val Light = lightColorScheme(
     error = DangerLight
 )
 
-private fun style(size: Int, weight: Int, lineHeight: Int, tracking: Double) = TextStyle(
+internal fun style(size: Int, weight: Int, lineHeight: Int, tracking: Double) = TextStyle(
     fontFamily = HkGrotesk,
     fontWeight = FontWeight(weight),
     fontSize = size.sp,

@@ -14,9 +14,19 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.ai.edge.litertlm.Content
 import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.Conversation as LmConversation
 import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.Message as LmMessage
 import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.ThinkingConfig
+import com.maik.app.data.*
+import com.maik.app.engine.*
+import com.maik.app.ui.chat.*
+import com.maik.app.ui.components.*
+import com.maik.app.ui.list.*
+import com.maik.app.ui.settings.*
+import com.maik.app.ui.setup.*
+import com.maik.app.ui.theme.*
 import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -24,8 +34,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.google.ai.edge.litertlm.Conversation as LmConversation
-import com.google.ai.edge.litertlm.Message as LmMessage
 
 /** What the engine is doing, independent of which screen you're looking at. */
 sealed interface Stage {

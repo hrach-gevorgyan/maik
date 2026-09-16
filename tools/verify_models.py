@@ -15,7 +15,7 @@ import re
 import sys
 import urllib.request
 
-SOURCE = "app/src/main/java/com/maik/app/ModelStore.kt"
+SOURCE = "app/src/main/java/com/maik/app/data/ModelStore.kt"
 TIMEOUT = 240
 
 

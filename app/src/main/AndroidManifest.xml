@@ -29,7 +29,7 @@
         </activity>
 
         <service
-            android:name=".DownloadService"
+            android:name=".data.DownloadService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
     </application>

@@ -1,4 +1,4 @@
-package com.maik.app
+package com.maik.app.ui.theme
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ContentTransform
@@ -27,6 +27,14 @@ import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import com.maik.app.*
+import com.maik.app.data.*
+import com.maik.app.engine.*
+import com.maik.app.ui.chat.*
+import com.maik.app.ui.components.*
+import com.maik.app.ui.list.*
+import com.maik.app.ui.settings.*
+import com.maik.app.ui.setup.*
 import kotlinx.coroutines.delay
 
 /**

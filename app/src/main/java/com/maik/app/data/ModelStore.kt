@@ -1,17 +1,25 @@
-package com.maik.app
+package com.maik.app.data
 
 import android.content.Context
 import android.os.Build
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.flowOn
+import com.maik.app.*
+import com.maik.app.engine.*
+import com.maik.app.ui.chat.*
+import com.maik.app.ui.components.*
+import com.maik.app.ui.list.*
+import com.maik.app.ui.settings.*
+import com.maik.app.ui.setup.*
+import com.maik.app.ui.theme.*
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.net.HttpURLConnection
 import java.net.URL
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOn
 
 /** How the app should be painted. */
 enum class ThemeMode { SYSTEM, DARK, LIGHT }
