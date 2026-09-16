@@ -209,13 +209,12 @@ class ModelStore(context: Context) {
                 return@flow
             }
 
-            // 206 means the server is continuing where we left off; 200 means it is
-            // sending the whole file again, so the partial copy is worthless.
-            val resuming = have > 0 && code == HttpURLConnection.HTTP_PARTIAL
-            if (!resuming) partial.delete()
-            val start = if (resuming) have else 0L
-            val remaining = conn.contentLengthLong.takeIf { it > 0 } ?: (s.approxBytes - start)
-            val total = start + remaining
+            val plan = ResumePlan.of(have, code, conn.contentLengthLong, s.approxBytes)
+            if (!plan.resuming) partial.delete()
+            val resuming = plan.resuming
+            val start = plan.start
+            val total = plan.total
+            val remaining = total - start
 
             if (!hasRoomFor(remaining)) {
                 emit(Download.Failed("Not enough free space — this needs ${remaining / 1024 / 1024} MB more."))

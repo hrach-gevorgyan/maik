@@ -46,9 +46,9 @@ class TokenEstimateTest {
 
     @Test
     fun `estimate grows with length and never returns zero`() {
-        assertTrue(ChatViewModel.estimateTokens("") >= 1)
-        val short = ChatViewModel.estimateTokens("hello")
-        val long = ChatViewModel.estimateTokens("hello ".repeat(100))
+        assertTrue(ContextBudget.estimateTokens("") >= 1)
+        val short = ContextBudget.estimateTokens("hello")
+        val long = ContextBudget.estimateTokens("hello ".repeat(100))
         assertTrue(long > short)
     }
 
@@ -58,7 +58,7 @@ class TokenEstimateTest {
         // so our count must come out higher than the realistic one.
         val text = "The quick brown fox jumps over the lazy dog. ".repeat(20)
         val realistic = text.length / 4
-        assertTrue(ChatViewModel.estimateTokens(text) > realistic)
+        assertTrue(ContextBudget.estimateTokens(text) > realistic)
     }
 }
 

@@ -677,7 +677,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         dropSession()
 
         val history = convo.messages.dropLast(1).filterNot { it.isError }
-        val recent = trimToBudget(history, model)
+        val recent = ContextBudget.recentTurns(history, model.contextTokens, systemPrompt)
         dropped = history.size - recent.size
 
         val fresh = LocalEngine.conversation(
@@ -709,28 +709,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** True once the conversation is close to filling its model's window. */
-    private fun overflowed(existing: LmConversation, model: ModelSpec): Boolean {
-        val used = runCatching { existing.getTokenCount() }.getOrDefault(0)
-        return used > (model.contextTokens * 0.8).toInt()
-    }
-
-    /**
-     * The newest turns that fit in about a third of the window, leaving the rest for
-     * the reply and for the conversation to grow before it has to be rebuilt.
-     */
-    private fun trimToBudget(history: List<Message>, model: ModelSpec): List<Message> {
-        var budget = (model.contextTokens * 0.3).toInt() - estimateTokens(systemPrompt)
-        val kept = ArrayDeque<Message>()
-        for (message in history.asReversed()) {
-            val cost = estimateTokens(message.text) + 8
-            if (budget - cost < 0) break
-            budget -= cost
-            kept.addFirst(message)
-        }
-        // A conversation cannot open on the model's turn.
-        while (kept.isNotEmpty() && !kept.first().fromUser) kept.removeFirst()
-        return kept.toList()
-    }
+    private fun overflowed(existing: LmConversation, model: ModelSpec): Boolean =
+        ContextBudget.isFull(runCatching { existing.getTokenCount() }.getOrDefault(0), model.contextTokens)
 
     private fun textOf(message: LmMessage): String =
         message.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
@@ -789,8 +769,5 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     companion object {
         private const val PUBLISH_EVERY_MS = 60L
-
-        /** Rough for English, deliberately pessimistic so the history under-fills. */
-        fun estimateTokens(text: String): Int = (text.length / 3.2).toInt() + 1
     }
 }

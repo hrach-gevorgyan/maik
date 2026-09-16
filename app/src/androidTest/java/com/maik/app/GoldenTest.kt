@@ -33,9 +33,10 @@ class GoldenTest {
         private lateinit var context: Context
         private lateinit var store: ModelStore
 
-        // The model people actually get. A test that passes on something nobody
-        // installs proves nothing.
-        private val spec = Models.DEFAULT
+        // A model the app really offers, but the lighter of the two: the CI emulator
+        // has 4 GB of RAM and a time limit, and Gemma's 2.6 GB would risk both. Same
+        // runtime, same format, same code path.
+        private val spec = Models.LFM_2_5_1_2B
 
         /** Loaded once for the whole class: reading 2 GB per question is not a test. */
         private var engine: Engine? = null

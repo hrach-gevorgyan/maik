@@ -165,7 +165,7 @@ python tools/verify_models.py
 ```
 
 **[`GoldenTest.kt`](app/src/androidTest/java/com/maik/app/GoldenTest.kt)** boots an
-emulator, downloads the real default model, loads it and asks for the capital of
+emulator, downloads LFM2.5 1.2B, loads it and asks for the capital of
 France. It fails unless the answer says Paris, the reply stops on its own without
 leaking markup, and a conversation remembers an earlier turn. **A release cannot publish unless it passes.**
 
