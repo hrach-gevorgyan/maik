@@ -14,16 +14,11 @@ import java.io.RandomAccessFile
 enum class ThemeMode { SYSTEM, DARK, LIGHT }
 
 /**
- * A model bundle maik can run.
+ * A model maik can run, as a LiteRT-LM `.litertlm` bundle.
  *
- * **Only `.task` bundles work.** They are ZIP archives holding `METADATA`,
- * `TF_LITE_PREFILL_DECODE` and `TOKENIZER_MODEL` — that last entry is the
- * SentencePiece tokenizer the runtime demands. LiteRT-LM `.litertlm` files carry no
- * such member and fail with "SentencePiece tokenizer not found", which is exactly
- * what shipped in 1.1.0 and 1.2.0.
- *
- * Every entry here is ungated on Hugging Face and has had its ZIP directory
- * inspected. Every Gemma and Llama repo is gated and cannot be used at all.
+ * The runtime reads each bundle's own chat template and stop tokens, so maik never
+ * formats a prompt itself. Every entry is ungated on Hugging Face and is the generic
+ * build — the `-gpu` and `-web` variants refuse to load on a CPU fallback.
  */
 data class ModelSpec(
     val id: String,
@@ -32,60 +27,50 @@ data class ModelSpec(
     val blurb: String,
     val url: String,
     val approxBytes: Long,
-    /** Context window the bundle was built with; must match its `ekv` figure. */
+    /** Upper bound on prompt plus reply, in tokens. */
     val contextTokens: Int,
-    /** Emits `<think>` blocks before answering. Parsing copes either way. */
+    /** Supports the runtime's thinking mode. */
     val reasoning: Boolean = false
 ) {
-    val fileName: String get() = "$id.task"
+    val fileName: String get() = "$id.litertlm"
     val approxMb: Long get() = approxBytes / 1024 / 1024
 }
 
 object Models {
-    val DEEPSEEK_1_5B = ModelSpec(
-        id = "deepseek-r1-distill-1.5b-q8",
-        label = "DeepSeek-R1 1.5B",
-        params = "1.5B · int8",
-        blurb = "Works through a problem before answering, and shows you the working.",
-        url = "https://huggingface.co/litert-community/DeepSeek-R1-Distill-Qwen-1.5B/" +
-            "resolve/main/DeepSeek-R1-Distill-Qwen-1.5B_multi-prefill-seq_q8_ekv4096.task",
-        approxBytes = 1_834_078_546L,
+    val GEMMA_4_E2B = ModelSpec(
+        id = "gemma-4-e2b-it",
+        label = "Gemma 4 E2B",
+        params = "2B effective",
+        blurb = "Google's model built for phones. The most capable here.",
+        url = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/" +
+            "resolve/main/gemma-4-E2B-it.litertlm",
+        approxBytes = 2_588_147_712L,
         contextTokens = 4096,
         reasoning = true
     )
 
-    /**
-     * A backup in the same size class, for when DeepSeek misbehaves. It does not
-     * reason first, so its first word arrives sooner.
-     */
-    val QWEN_1_5B = ModelSpec(
-        id = "qwen2.5-1.5b-instruct-q8",
-        label = "Qwen2.5 1.5B",
-        params = "1.5B · int8",
-        blurb = "Answers straight away instead of thinking first. A steady fallback.",
-        url = "https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct/" +
-            "resolve/main/Qwen2.5-1.5B-Instruct_multi-prefill-seq_q8_ekv4096.task",
-        approxBytes = 1_598_556_720L,
-        contextTokens = 4096
+    val QWEN_3_5_2B = ModelSpec(
+        id = "qwen3.5-2b-int8",
+        label = "Qwen3.5 2B",
+        params = "2B \u00b7 int8",
+        blurb = "Smaller download, quick on its feet, and can think before answering.",
+        url = "https://huggingface.co/litert-community/Qwen3.5-2B/" +
+            "resolve/main/Qwen3.5-2B_int8.litertlm",
+        approxBytes = 2_116_592_816L,
+        contextTokens = 4096,
+        reasoning = true
     )
 
-    /**
-     * Two models, both around 1.5B, because that is the size a phone actually runs.
-     *
-     * TinyLlama returned empty replies on device. Phi-4-mini at 3.8B ran the phone
-     * hot enough to throttle, took over a minute per answer and then locked up.
-     * Nothing that size gets offered again — see [MAX_SENSIBLE_BYTES].
-     */
-    val ALL = listOf(DEEPSEEK_1_5B, QWEN_1_5B)
+    val ALL = listOf(GEMMA_4_E2B, QWEN_3_5_2B)
 
-    val DEFAULT = DEEPSEEK_1_5B
+    val DEFAULT = GEMMA_4_E2B
 
     /**
-     * A hard ceiling on what may be offered. Phi-4-mini at 3.7 GB was unusable on
-     * real hardware; anything approaching that is a bad recommendation, not a
-     * powerful one.
+     * A hard ceiling on what may be offered. Phi-4-mini at 3.7 GB ran the phone hot
+     * enough to throttle, took over a minute per answer and then locked up. Gemma 4
+     * E2B at 2.4 GB is the largest thing allowed through; anything near Phi is not.
      */
-    const val MAX_SENSIBLE_BYTES = 2_100_000_000L
+    const val MAX_SENSIBLE_BYTES = 2_700_000_000L
 
     fun byId(id: String?): ModelSpec = ALL.firstOrNull { it.id == id } ?: DEFAULT
 }
@@ -275,36 +260,21 @@ class ModelStore(context: Context) {
         const val MIN_PLAUSIBLE_BYTES = 20L * 1024 * 1024
 
         /**
-          * Returns a human-readable problem, or null when the bundle looks loadable.
-          *
-          * These archives begin with four bytes before the ZIP header, which
-          * `java.util.zip.ZipFile` may refuse even though the runtime reads them
-          * happily. So rather than parse the container, scan the tail — the central
-          * directory lists every member by name and always sits at the end.
-          */
+         * Returns a human-readable problem, or null when the bundle looks loadable.
+         * Every LiteRT-LM bundle opens with the eight ASCII bytes `LITERTLM`; an
+         * error page, a truncated download or the wrong format does not.
+         */
         fun validate(file: File): String? = try {
             RandomAccessFile(file, "r").use { raf ->
-                val length = raf.length()
-                val window = minOf(length, 1L shl 20).toInt()
-                raf.seek(length - window)
-                val buffer = ByteArray(window)
-                raf.readFully(buffer)
-                val tail = String(buffer, Charsets.ISO_8859_1)
-                when {
-                    !tail.contains(REQUIRED_ENTRY) ->
-                        "That file isn't a usable model — it has no tokenizer inside."
-
-                    !tail.contains(WEIGHTS_ENTRY) ->
-                        "That file isn't a usable model — the weights are missing."
-
-                    else -> null
-                }
+                val magic = ByteArray(MAGIC.length)
+                raf.readFully(magic)
+                if (String(magic, Charsets.US_ASCII) == MAGIC) null
+                else "That file isn't a usable model."
             }
         } catch (_: Exception) {
             "The downloaded file could not be read."
         }
 
-        const val REQUIRED_ENTRY = "TOKENIZER_MODEL"
-        const val WEIGHTS_ENTRY = "TF_LITE_PREFILL_DECODE"
+        const val MAGIC = "LITERTLM"
     }
 }

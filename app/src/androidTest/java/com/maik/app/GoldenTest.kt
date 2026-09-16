@@ -3,28 +3,28 @@ package com.maik.app
 import android.content.Context
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.google.mediapipe.tasks.genai.llminference.LlmInference
-import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
+import com.google.ai.edge.litertlm.Backend
+import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.ThinkingConfig
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertEquals
+import org.junit.AfterClass
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.BeforeClass
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.io.File
 
 /**
- * The check that would have caught every broken release.
+ * The check that no unit test can make: a real model, downloaded onto a real
+ * Android image, loaded by the real runtime, asked a real question.
  *
- * Three versions shipped models the engine could not read, and no amount of unit
- * testing would have found it: the failure only exists once a real bundle meets the
- * real runtime. So this downloads an actual model onto an actual Android image,
- * loads it, and makes it produce a sentence.
- *
- * It runs against the default model, downloaded onto the emulator and cached
- * between runs, so what is verified is what ships.
+ * Every broken release so far failed exactly here — where a bundle meets the
+ * runtime — so a release cannot publish unless this passes.
  */
 @RunWith(AndroidJUnit4::class)
 class GoldenTest {
@@ -32,143 +32,113 @@ class GoldenTest {
     companion object {
         private lateinit var context: Context
         private lateinit var store: ModelStore
-        // The model people actually get. Slower to fetch than a toy fixture, but
-        // a test that passes on something nobody installs proves nothing.
+
+        // The model people actually get. A test that passes on something nobody
+        // installs proves nothing.
         private val spec = Models.DEFAULT
-        private var modelFile: File? = null
+
+        /** Loaded once for the whole class: reading 2 GB per question is not a test. */
+        private var engine: Engine? = null
 
         @BeforeClass
         @JvmStatic
-        fun fetchModel() {
+        fun fetchAndLoad() {
             context = InstrumentationRegistry.getInstrumentation().targetContext
             store = ModelStore(context)
 
-            if (store.isReady(spec)) {
-                modelFile = store.fileFor(spec)
-                return
-            }
-
-            var failure: String? = null
-            runBlocking {
-                store.download(spec).collect { event ->
-                    when (event) {
-                        is Download.Done -> modelFile = event.file
-                        is Download.Failed -> failure = event.reason
-                        is Download.Progress -> Unit
+            if (!store.isReady(spec)) {
+                var failure: String? = null
+                runBlocking {
+                    store.download(spec).collect { event ->
+                        if (event is Download.Failed) failure = event.reason
                     }
                 }
+                assertNull("the model failed to download: $failure", failure)
             }
-            assertNull("the model failed to download: $failure", failure)
+
+            // CPU: emulators have no usable GPU, and the bundle is what's under test.
+            engine = Engine(
+                EngineConfig(
+                    modelPath = store.fileFor(spec).absolutePath,
+                    backend = Backend.CPU(),
+                    maxNumTokens = spec.contextTokens,
+                    cacheDir = context.cacheDir.absolutePath
+                )
+            ).also { it.initialize() }
+        }
+
+        @AfterClass
+        @JvmStatic
+        fun release() {
+            runCatching { engine?.close() }
+            engine = null
         }
     }
 
     @Test
     fun theBundleDownloadsAndPassesValidation() {
-        val file = modelFile
-        assertTrue("no model file was produced", file != null && file.exists())
-        // Whatever the app accepts here is what it will later hand to the engine.
+        val file = store.fileFor(spec)
+        assertTrue("no model file was produced", file.exists())
         assertTrue(
             "the downloaded bundle is smaller than it should be",
-            file!!.length() > spec.approxBytes * 0.99
+            file.length() > spec.approxBytes * 0.99
         )
         assertTrue("the store does not consider the model ready", store.isReady(spec))
     }
 
     @Test
     fun theEngineLoadsTheBundle() {
-        // The exact failure of 1.1.0 through 1.3.0: a file that downloads cleanly
-        // and then cannot be opened.
-        engine().close()
+        assertTrue("the engine did not initialise", engine?.isInitialized() == true)
     }
 
     @Test
     fun theModelAnswersTheQuestionItWasAsked() {
-        // Not just "did it say something": 1.4.x returned fluent text that ignored
-        // the question entirely, because the prompt was being templated twice.
         val reply = ask("What is the capital of France? Answer in one word.")
+        assertTrue("the model returned nothing at all", reply.isNotBlank())
         assertTrue(
-            "the model returned nothing at all",
-            reply.isNotBlank()
-        )
-        assertTrue(
-            "the answer ignored the question entirely: $reply",
+            "the answer ignored the question: $reply",
             reply.contains("paris", ignoreCase = true)
         )
     }
 
     @Test
-    fun theReplyIsCleanTextRatherThanTokeniserDebris() {
-        val reply = ask("Say hello.")
-
-        // 'Ġ' is byte-level BPE debris. It surfaces when a model is fed markup it
-        // was not trained on — the exact symptom of double-templating.
-        assertFalse("byte-level tokeniser debris in the reply: $reply", reply.contains("Ġ"))
-        assertFalse("raw control tokens leaked into the reply: $reply", reply.contains("<|"))
-        assertFalse("chat markup leaked into the reply: $reply", reply.contains("<｜"))
+    fun theReplyStopsOnItsOwnAndCarriesNoMarkup() {
+        // The old runtime ignored stop tokens, so the model invented whole
+        // conversations and leaked its control tokens. This runtime must not.
+        val reply = ask("Say hello in one short sentence.")
+        assertTrue("nothing came back", reply.isNotBlank())
+        assertFalse("control tokens leaked: $reply", reply.contains("<|") || reply.contains("<start_of_turn>"))
+        assertFalse("byte-level tokenizer debris: $reply", reply.contains("Ġ"))
+        assertTrue("the reply ran on instead of stopping: ${reply.length} chars", reply.length < 600)
     }
 
     @Test
-    fun theModelRamblesPastItsStopTokenAndTheAppTrimsIt() {
-        // Documents the behaviour the trimming exists for, against real output:
-        // the runtime does not honour the bundle's stop token, so the model emits
-        // it as text and invents a conversation until the budget runs out.
-        val raw = rawAsk("Say hello.")
-        val cleaned = Reply.clean(raw)
-        assertTrue("nothing came back at all", raw.isNotBlank())
-        assertTrue("the trimmed reply is empty", cleaned.isNotBlank())
-        assertTrue(
-            "trimming did not shorten a rambling reply",
-            cleaned.length <= raw.length
-        )
-    }
-
-    @Test
-    fun promptsAreSentAsPlainTextWithNoTemplateOfOurOwn() {
-        // The bundle carries its own template and the engine applies it. Anything we
-        // add on top is what broke 1.1.0 through 1.4.1.
-        val reply = ask("Name one colour.")
-        assertTrue("plain text produced no reply", reply.isNotBlank())
-    }
-
-    /**
-     * What the reader would actually see: the engine's output put through the same
-     * trimming the app applies. Asserting on the raw generation would only restate
-     * that small models ramble past their stop token, which they always do.
-     */
-    private fun ask(question: String): String = Reply.clean(rawAsk(question))
-
-    /** One question, one fresh session, raw text — exactly how the app asks. */
-    private fun rawAsk(question: String): String = engine().use { llm ->
-        val options = LlmInferenceSession.LlmInferenceSessionOptions.builder()
-            .setTemperature(0.1f)
-            .setTopK(10)
-            .build()
-        LlmInferenceSession.createFromOptions(llm, options).use { session ->
-            session.addQueryChunk(question)
-            session.generateResponse()
+    fun aConversationRemembersWhatWasSaid() {
+        val conversation = engine!!.createConversation(config())
+        conversation.use {
+            textOf(it.sendMessage("My name is Arman. Just say OK."))
+            val reply = textOf(it.sendMessage("What is my name? Answer in one word."))
+            assertTrue("the conversation forgot the earlier turn: $reply", reply.contains("arman", ignoreCase = true))
         }
     }
 
     @Test
     fun theCatalogueOnlyOffersLoadableBundles() {
-        // Cheap on-device restatement of the unit rule, so a mistake in the
-        // catalogue fails here too rather than only in a JVM test.
         Models.ALL.forEach { model ->
-            assertTrue(model.url, model.url.endsWith(".task"))
-            assertEquals(model.fileName, "${model.id}.task")
+            assertTrue(model.url, model.url.endsWith(".litertlm"))
         }
     }
 
-    /**
-     * CPU only: emulators have no usable GPU delegate, and the point of this test is
-     * the model bundle rather than the accelerator.
-     */
-    private fun engine(): LlmInference = LlmInference.createFromOptions(
-        context,
-        LlmInference.LlmInferenceOptions.builder()
-            .setModelPath(store.fileFor(spec).absolutePath)
-            .setMaxTokens(spec.contextTokens)
-            .setPreferredBackend(LlmInference.Backend.CPU)
-            .build()
+    /** One question in a fresh conversation, trimmed exactly as the app trims it. */
+    private fun ask(question: String): String =
+        engine!!.createConversation(config()).use { Reply.clean(textOf(it.sendMessage(question))) }
+
+    private fun config() = ConversationConfig(
+        samplerConfig = SamplerConfig(topK = 1, topP = 1.0, temperature = 0.0, seed = 0),
+        // Thinking off: the test asks for short answers and wants them promptly.
+        thinkingConfig = ThinkingConfig(false)
     )
+
+    private fun textOf(message: com.google.ai.edge.litertlm.Message): String =
+        message.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
 }

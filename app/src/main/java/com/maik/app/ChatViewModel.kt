@@ -11,9 +11,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.mediapipe.tasks.genai.llminference.LlmInference
-import com.google.mediapipe.tasks.genai.llminference.LlmInferenceSession
-import com.google.mediapipe.tasks.genai.llminference.ProgressListener
+import com.google.ai.edge.litertlm.Content
+import com.google.ai.edge.litertlm.Contents
+import com.google.ai.edge.litertlm.ConversationConfig
+import com.google.ai.edge.litertlm.Engine
+import com.google.ai.edge.litertlm.EngineConfig
+import com.google.ai.edge.litertlm.SamplerConfig
+import com.google.ai.edge.litertlm.ThinkingConfig
+import kotlinx.coroutines.Job
+import com.google.ai.edge.litertlm.Backend as LmBackend
+import com.google.ai.edge.litertlm.Conversation as LmConversation
+import com.google.ai.edge.litertlm.Message as LmMessage
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -113,11 +121,16 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     var dropped by mutableStateOf(0)
         private set
 
-    private var engine: LlmInference? = null
-    private var session: LlmInferenceSession? = null
+    private var engine: Engine? = null
 
-    /** Which conversation [session] holds the context of. */
+    /** The runtime's own conversation, which holds the chat's context between turns. */
+    private var session: LmConversation? = null
+
+    /** Which chat [session] belongs to, and the thinking setting it was built with. */
     private var sessionOwner: String? = null
+    private var sessionThinks: Boolean? = null
+
+    private var job: Job? = null
 
     /** Which spec [engine] was built from, so a chat can demand a different one. */
     private var loadedId: String? = null
@@ -402,45 +415,54 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * CPU by default. The GPU delegate is faster when it works, but on some drivers
-     * it takes the whole process down with it — a native crash no `catch` can see,
-     * which is why it is opt-in and why a breadcrumb is written around the attempt.
+     * CPU by default. The GPU backend is faster when it works, but on some drivers it
+     * takes the whole process down with it — a native crash no `catch` can see, which
+     * is why it is opt-in and why a breadcrumb is written around the attempt.
+     *
+     * The cache directory is where the runtime keeps its prepared copy of the model,
+     * which is what makes every load after the first one quick.
      */
-    private fun openEngine(target: ModelSpec): Pair<LlmInference, Backend> {
-        val path = store.fileFor(target).absolutePath
+    private fun openEngine(target: ModelSpec): Pair<Engine, Backend> {
+        val app = getApplication<Application>()
 
-        fun build(preferred: LlmInference.Backend) = LlmInference.createFromOptions(
-            getApplication(),
-            LlmInference.LlmInferenceOptions.builder()
-                .setModelPath(path)
-                .setMaxTokens(target.contextTokens)
-                .setPreferredBackend(preferred)
-                .build()
-        )
+        fun build(backend: LmBackend) = Engine(
+            EngineConfig(
+                modelPath = store.fileFor(target).absolutePath,
+                backend = backend,
+                maxNumTokens = target.contextTokens,
+                cacheDir = app.cacheDir.absolutePath
+            )
+        ).also { it.initialize() }
 
-        if (!useGpu) return Pair(build(LlmInference.Backend.CPU), Backend.CPU)
+        if (!useGpu) return Pair(build(LmBackend.CPU()), Backend.CPU)
 
         store.beginRiskyLoad()
         return try {
-            val engine = Pair(build(LlmInference.Backend.GPU), Backend.GPU)
+            val opened = Pair(build(LmBackend.GPU()), Backend.GPU)
             store.endRiskyLoad()
-            engine
+            opened
         } catch (_: Throwable) {
             store.endRiskyLoad()
-            Pair(build(LlmInference.Backend.CPU), Backend.CPU)
+            Pair(build(LmBackend.CPU()), Backend.CPU)
         }
     }
 
     private fun closeEngine() {
         generation++
-        runCatching { session?.close() }
+        job?.cancel()
+        dropSession()
         runCatching { engine?.close() }
-        session = null
-        sessionOwner = null
         engine = null
         loadedId = null
         busy = false
         backend = Backend.NONE
+    }
+
+    private fun dropSession() {
+        runCatching { session?.close() }
+        session = null
+        sessionOwner = null
+        sessionThinks = null
     }
 
     /* ---------- generation ---------- */
@@ -472,9 +494,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val trimmed = convo.messages.dropLastWhile { !it.fromUser }
         if (trimmed.isEmpty()) return
         // The live session still remembers the answer we are discarding.
-        runCatching { session?.close() }
-        session = null
-        sessionOwner = null
+        dropSession()
         replace(convo.id) { it.copy(messages = trimmed) }
         persist()
         generate(convo.id)
@@ -496,62 +516,94 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         streaming = ""
         turnStartedAt = System.currentTimeMillis()
         val turn = ++generation
+        val prompt = convo.messages.last().text
 
-        viewModelScope.launch {
+        job = viewModelScope.launch {
+            val answer = StringBuilder()
+            val reasoning = StringBuilder()
             try {
                 withContext(Dispatchers.Default) {
-                    val s = sessionFor(llm, convo)
-                    // Raw text only. The bundle carries its own prompt template and
-                    // the engine applies it; adding our own wraps the model's markup
-                    // in a second layer and it answers the wrong question.
-                    s.addQueryChunk(convo.messages.last().text)
-                    s.generateResponseAsync(ProgressListener<String> { partial, done ->
-                        onToken(turn, conversationId, partial, done)
-                    })
+                    sessionFor(llm, convo).sendMessageAsync(prompt).collect { chunk ->
+                        answer.append(textOf(chunk))
+                        chunk.channels.values.forEach { reasoning.append(it) }
+                        withContext(Dispatchers.Main) {
+                            if (turn == generation) streaming = render(reasoning, answer)
+                        }
+                    }
+                }
+                if (turn == generation) {
+                    val split = Split.of(render(reasoning, answer))
+                    finish(
+                        conversationId = conversationId,
+                        text = Reply.clean(split.answer).ifEmpty { "\u2026" },
+                        isError = false,
+                        reasoning = Reply.clean(split.reasoning).ifEmpty { null }
+                    )
                 }
             } catch (e: Throwable) {
-                if (turn == generation) {
+                if (turn == generation && e !is kotlinx.coroutines.CancellationException) {
+                    dropSession()
                     finish(conversationId, e.message ?: e::class.java.simpleName, isError = true)
                 }
             }
         }
     }
 
+    /** The visible text of a streamed chunk. */
+    private fun textOf(message: LmMessage): String =
+        message.contents.contents.filterIsInstance<Content.Text>().joinToString("") { it.text }
+
     /**
-     * A session holds its own conversation state, so one is kept per chat and reused
-     * across turns. When a chat is opened fresh — a new session, but an existing
-     * history — the earlier turns are replayed once as ordinary prose, which the
-     * template then wraps exactly once.
+     * Folds the runtime's separate reasoning channel into the `<think>` form the chat
+     * already knows how to display, so thinking stays quiet while it happens and folds
+     * away once the answer starts.
      */
-    private fun sessionFor(llm: LlmInference, convo: Conversation): LlmInferenceSession {
+    private fun render(reasoning: CharSequence, answer: CharSequence): String = when {
+        reasoning.isEmpty() -> answer.toString()
+        answer.isEmpty() -> "<think>$reasoning"
+        else -> "<think>$reasoning</think>$answer"
+    }
+
+    /**
+     * One runtime conversation per chat, reused across turns so the model keeps its
+     * context. It is rebuilt when the chat changes, when thinking is switched, or when
+     * the chat outgrows the window — seeded with the most recent turns that fit.
+     */
+    private fun sessionFor(llm: Engine, convo: Conversation): LmConversation {
         val existing = session
-        if (existing != null && sessionOwner == convo.id && !overflowed(convo)) return existing
+        if (existing != null && sessionOwner == convo.id &&
+            sessionThinks == thinkingEnabled && !overflowed(existing, convo)
+        ) return existing
 
-        runCatching { existing?.close() }
-        val options = LlmInferenceSession.LlmInferenceSessionOptions.builder()
-            .setTemperature(0.7f)
-            .setTopK(40)
-            .build()
-        val fresh = LlmInferenceSession.createFromOptions(llm, options)
-        session = fresh
-        sessionOwner = convo.id
-
+        dropSession()
         val history = convo.messages.dropLast(1).filterNot { it.isError }
         val recent = trimToBudget(history, modelFor(convo))
         dropped = history.size - recent.size
-        if (recent.isNotEmpty()) fresh.addQueryChunk(recap(recent))
+
+        val fresh = llm.createConversation(
+            ConversationConfig(
+                systemInstruction = Contents.of(systemPrompt),
+                initialMessages = recent.map {
+                    if (it.fromUser) LmMessage.user(it.text) else LmMessage.model(it.text)
+                },
+                samplerConfig = SamplerConfig(topK = 40, topP = 0.95, temperature = 0.7, seed = 0),
+                thinkingConfig = ThinkingConfig(modelFor(convo).reasoning && thinkingEnabled)
+            )
+        )
+        session = fresh
+        sessionOwner = convo.id
+        sessionThinks = thinkingEnabled
         return fresh
     }
 
-    /** True once a chat has grown past what its model's window can hold. */
-    private fun overflowed(convo: Conversation): Boolean {
-        val budget = (modelFor(convo).contextTokens * 0.55).toInt()
-        val used = convo.messages.sumOf { estimateTokens(it.text) + 8 }
-        return used > budget
+    /** True once the conversation is close to filling its model's window. */
+    private fun overflowed(existing: LmConversation, convo: Conversation): Boolean {
+        val used = runCatching { existing.getTokenCount() }.getOrDefault(0)
+        return used > (modelFor(convo).contextTokens * 0.8).toInt()
     }
 
     private fun trimToBudget(history: List<Message>, model: ModelSpec): List<Message> {
-        var budget = (model.contextTokens * 0.45).toInt() - estimateTokens(systemPrompt)
+        var budget = (model.contextTokens * 0.5).toInt() - estimateTokens(systemPrompt)
         val kept = ArrayDeque<Message>()
         for (message in history.asReversed()) {
             val cost = estimateTokens(message.text) + 8
@@ -559,28 +611,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             budget -= cost
             kept.addFirst(message)
         }
+        // A conversation cannot open on the model's turn.
+        while (kept.isNotEmpty() && !kept.first().fromUser) kept.removeFirst()
         return kept.toList()
     }
 
-    /** Prior turns as plain prose — no role tags, nothing the tokenizer treats as markup. */
-    private fun recap(history: List<Message>): String = buildString {
-        append(systemPrompt).append("\n\n")
-        append("Here is our conversation so far.\n")
-        history.forEach { m ->
-            append(if (m.fromUser) "Me: " else "You: ")
-            append(m.text)
-            append("\n")
-        }
-        append("\nContinue from here.\n")
-    }
-
     /**
-     * Keeps whatever the reader has already seen and walks away from the rest.
-     *
-     * The native call cannot be interrupted safely mid-flight, so rather than tear
-     * the session down underneath it we stop listening: late tokens arrive with a
-     * stale turn number and are discarded. The session itself is dropped, because it
-     * now holds a reply the conversation does not.
+     * Stops the reply where it is and keeps what the reader has already seen. The
+     * runtime is told to cancel, and the conversation is rebuilt next turn, since it
+     * now holds a half-finished reply the chat does not.
      */
     fun stop() {
         if (!busy) return
@@ -588,9 +627,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val split = Split.of(streaming)
         val seconds = thoughtSeconds()
         generation++
-        runCatching { session?.close() }
-        session = null
-        sessionOwner = null
+        runCatching { session?.cancelProcess() }
+        job?.cancel()
+        dropSession()
         streaming = ""
         busy = false
 
@@ -608,33 +647,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 )
             }
             persist()
-        }
-    }
-
-    private fun onToken(turn: Int, conversationId: String, partial: String?, done: Boolean) {
-        // Callbacks arrive off the main thread; hop back before touching state.
-        viewModelScope.launch(Dispatchers.Main) {
-            if (turn != generation) {
-                // A stopped or superseded turn: its tokens belong to a session we
-                // have already walked away from.
-                return@launch
-            }
-            streaming += partial.orEmpty()
-
-            // Small models emit their end-of-turn token as text and keep going,
-            // inventing both sides of a conversation. Stop listening at the first
-            // marker rather than showing the reader that, or paying to generate it.
-            val finished = done || Reply.isComplete(streaming)
-            if (finished) {
-                val split = Split.of(streaming)
-                if (!done) generation++      // abandon the rest of this generation
-                finish(
-                    conversationId = conversationId,
-                    text = Reply.clean(split.answer).ifEmpty { "…" },
-                    isError = false,
-                    reasoning = Reply.clean(split.reasoning).ifEmpty { null }
-                )
-            }
         }
     }
 

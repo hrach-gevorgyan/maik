@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 """Check every model the app offers, without downloading gigabytes.
 
-Four shipped releases were broken by model bundles that were never inspected: one
-was LiteRT-LM rather than a task archive, one was a GPU-only build, one was never
-checked at all because a range request failed and the failure was shrugged off.
+Earlier releases were broken by model files nobody inspected: the wrong format, a
+GPU-only build, one never checked because a request failed and was shrugged off.
 
-A `.task` bundle is a ZIP. Its central directory sits at the end, so a range request
-for the tail lists every member, and a second one pulls out `METADATA` — which is
-where each model keeps the prompt template the runtime applies. Total cost is a few
-hundred kilobytes per model.
+Every LiteRT-LM bundle opens with the eight ASCII bytes `LITERTLM`, so a range
+request for the first few bytes proves the file is what it claims to be, and a HEAD
+request confirms its size. Loading and answering is proven separately, on an
+emulator, by the golden test.
 
 Run from the repository root:  python tools/verify_models.py
 """
 import re
-import struct
 import sys
 import urllib.request
 
@@ -52,88 +50,33 @@ def ranged(url, start=None, end=None, last=None):
         return response.read(), response.headers.get("Content-Range", "")
 
 
-def central_directory(tail):
-    """Yield (name, compressed_size, local_offset) for every member."""
-    for match in re.finditer(b"PK\x01\x02", tail):
-        at = match.start()
-        if at + 46 > len(tail):
-            continue
-        name_len = struct.unpack_from("<H", tail, at + 28)[0]
-        extra_len = struct.unpack_from("<H", tail, at + 30)[0]
-        name = tail[at + 46:at + 46 + name_len].decode("utf-8", "ignore")
-        size = struct.unpack_from("<I", tail, at + 20)[0]
-        offset = struct.unpack_from("<I", tail, at + 42)[0]
-
-        # 0xFFFFFFFF means the real offset lives in a ZIP64 extra field. Missing
-        # this is what made Phi-4-mini look unverifiable.
-        if offset == 0xFFFFFFFF:
-            extra = tail[at + 46 + name_len: at + 46 + name_len + extra_len]
-            cursor = 0
-            while cursor + 4 <= len(extra):
-                header_id, header_size = struct.unpack_from("<HH", extra, cursor)
-                if header_id == 0x0001:
-                    offset = struct.unpack_from("<Q", extra, cursor + 4)[0]
-                    break
-                cursor += 4 + header_size
-        yield name, size, offset
-
-
-def member_bytes(url, size, offset):
-    """These archives carry four bytes before the ZIP header, so try both."""
-    for shift in (4, 0):
-        head, _ = ranged(url, offset + shift, offset + shift + 29)
-        if head[:4] == b"PK\x03\x04":
-            name_len = struct.unpack_from("<H", head, 26)[0]
-            extra_len = struct.unpack_from("<H", head, 28)[0]
-            start = offset + shift + 30 + name_len + extra_len
-            body, _ = ranged(url, start, start + size - 1)
-            return body
-    return None
-
-
 def check(spec):
     problems = []
     url = spec["url"]
+    name = url.rsplit("/", 1)[-1].lower()
 
-    if not url.endswith(".task"):
-        problems.append("not a .task bundle")
-    if "-gpu." in url or "_gpu." in url:
+    if not url.endswith(".litertlm"):
+        problems.append("not a .litertlm bundle")
+    if "-gpu." in name or "_gpu." in name:
         problems.append("GPU-only build: cannot load on the CPU fallback")
-    if "-web" in url or "_web" in url:
-        problems.append("web build: raw tflite, not a task archive")
+    if "web" in name:
+        problems.append("web build: made for browsers")
+    if any(chip in name for chip in ("qualcomm", "tensor", "intel", "mediatek")):
+        problems.append("chip-specific build: only loads on one SoC")
+    if not url.startswith("https://huggingface.co/litert-community/"):
+        problems.append("not an ungated litert-community source")
 
-    tail, content_range = ranged(url, last=400_000)
+    head, content_range = ranged(url, 0, 15)
     total = int(content_range.rsplit("/", 1)[-1]) if "/" in content_range else 0
 
+    if head[:8] != b"LITERTLM":
+        problems.append("does not start with the LITERTLM magic bytes (got %r)" % head[:8])
     if total and spec["bytes"] and abs(total - spec["bytes"]) > 1024:
         problems.append("declared %d bytes, server says %d" % (spec["bytes"], total))
+    if total > 2_700_000_000:
+        problems.append("%.2f GB is too big for a phone" % (total / 1024 ** 3))
 
-    members = {name: (size, offset) for name, size, offset in central_directory(tail)}
-    for required in ("TOKENIZER_MODEL", "TF_LITE_PREFILL_DECODE", "METADATA"):
-        if required not in members:
-            problems.append("missing %s" % required)
-
-    template = None
-    if "METADATA" in members:
-        size, offset = members["METADATA"]
-        blob = member_bytes(url, size, offset)
-        if blob is None:
-            problems.append("METADATA could not be read")
-        else:
-            # The template is stored as text among the protobuf fields; a bundle
-            # without one leaves the app guessing, which is how replies got garbled.
-            readable = blob.decode("utf-8", "replace")
-            if not re.search(r"<\|?[A-Za-z_｜]+\|?>|<｜", readable):
-                problems.append("METADATA carries no prompt template")
-            template = readable
-
-    ekv = re.search(r"ekv(\d+)", url)
-    if ekv and spec["context"] and int(ekv.group(1)) != spec["context"]:
-        problems.append(
-            "context %d does not match the bundle's ekv%s" % (spec["context"], ekv.group(1))
-        )
-
-    return problems, total, template
+    return problems, total
 
 
 def main():
@@ -148,16 +91,13 @@ def main():
         print("=" * 66)
         print(spec["label"])
         try:
-            problems, total, template = check(spec)
+            problems, total = check(spec)
         except Exception as error:  # noqa: BLE001 - report, do not mask
             print("  ERROR  %s" % error)
             failed = True
             continue
 
         print("  size     %d bytes (%.2f GB)" % (total, total / 1024 ** 3))
-        if template:
-            snippet = template.replace("\n", " ")[:150]
-            print("  template %s" % snippet)
 
         if problems:
             failed = True

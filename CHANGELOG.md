@@ -7,6 +7,37 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 1.7.0 — 16 September 2026
+
+**New engine, new models.**
+
+maik now runs on **LiteRT-LM**, Google's current on-device runtime, replacing
+MediaPipe's LLM Inference, which is deprecated. Every newer model ships only in
+LiteRT-LM's format, so this is what made better models possible at all.
+
+- **Gemma 4 E2B** is the new default — Google's model built for phones.
+- **Qwen3.5 2B** is the alternative: a smaller download that can think before
+  answering.
+- DeepSeek-R1 1.5B and Qwen2.5 1.5B are gone. Chats that used them open with the new
+  default.
+
+### Better, because of the new engine
+
+- **Replies stop where they should.** The runtime applies each model's own chat
+  template and stop tokens, so the rambling and leaked markup of earlier versions are
+  handled at the source instead of trimmed afterwards.
+- **Chats remember properly.** History is handed to the model as real conversation
+  turns rather than summarised into a paragraph.
+- **Stop is a real stop.** Generation is cancelled, not just ignored until it ends.
+- **Thinking is native.** The thinking switch now turns the model's own reasoning mode
+  on and off.
+- **Faster reloads.** The runtime keeps a prepared copy of the model, so only the very
+  first load is slow.
+
+You will need to download a model again, since the file format has changed.
+
+---
+
 ## 1.6.0 — 21 August 2026
 
 **Two models, both verified against their own bundles before shipping.**

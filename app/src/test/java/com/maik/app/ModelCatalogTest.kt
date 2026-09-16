@@ -7,28 +7,25 @@ import org.junit.Test
 /**
  * These rules exist because breaking each of them shipped a broken release.
  *
- * 1.1.0 and 1.2.0 both listed models the runtime cannot load. The checks below are
- * derived from what the bundles actually contain, verified by reading their ZIP
- * directories over HTTP range requests.
+ * Earlier versions listed models the runtime could not load, GPU-only builds that
+ * failed on the CPU fallback, and a 3.7 GB model that locked the phone up.
  */
 class ModelCatalogTest {
 
     @Test
-    fun `every bundle is a task file`() {
-        // LiteRT-LM .litertlm bundles carry no SentencePiece tokenizer and fail with
-        // "SentencePiece tokenizer not found". Only .task ZIPs work.
+    fun `every bundle is a LiteRT-LM file`() {
         Models.ALL.forEach { model ->
             assertTrue(
-                "${model.label} must be a .task bundle: ${model.url}",
-                model.url.endsWith(".task")
+                "${model.label} must be a .litertlm bundle: ${model.url}",
+                model.url.endsWith(".litertlm")
             )
         }
     }
 
     @Test
     fun `no GPU-only bundles, since they cannot fall back to CPU`() {
-        // A -gpu bundle fails on the CPU executor, which is exactly where the app
-        // lands whenever the GPU delegate is refused.
+        // A -gpu bundle fails on the CPU backend, which is exactly where the app lands
+        // whenever the GPU is refused — and CPU is the default.
         Models.ALL.forEach { model ->
             assertTrue(
                 "${model.label} must not be a GPU-only build: ${model.url}",
@@ -38,11 +35,14 @@ class ModelCatalogTest {
     }
 
     @Test
-    fun `no web bundles, which are raw tflite rather than task archives`() {
+    fun `no web or chip-specific bundles`() {
+        // Web builds target browsers; chip-specific builds only load on that one SoC.
         Models.ALL.forEach { model ->
+            val name = model.url.substringAfterLast('/').lowercase()
+            assertTrue("${model.label} is a web build", "web" !in name)
             assertTrue(
-                "${model.label} must not be a web build: ${model.url}",
-                !model.url.contains("-web") && !model.url.contains("_web")
+                "${model.label} is tied to one chip",
+                listOf("qualcomm", "tensor", "intel", "mediatek").none { it in name }
             )
         }
     }
@@ -55,24 +55,9 @@ class ModelCatalogTest {
     }
 
     @Test
-    fun `context matches the ekv size baked into the bundle filename`() {
-        // Asking for more tokens than the KV cache holds fails at generation time.
-        Models.ALL.forEach { model ->
-            val ekv = Regex("ekv(\\d+)").find(model.url)?.groupValues?.get(1)?.toInt()
-            if (ekv != null) {
-                assertEquals(
-                    "${model.label} declares a context its bundle cannot serve",
-                    ekv,
-                    model.contextTokens
-                )
-            }
-        }
-    }
-
-    @Test
-    fun `ids are unique and filenames keep the task extension`() {
+    fun `ids are unique and filenames keep the bundle extension`() {
         assertEquals(Models.ALL.size, Models.ALL.map { it.id }.toSet().size)
-        Models.ALL.forEach { assertTrue(it.fileName, it.fileName.endsWith(".task")) }
+        Models.ALL.forEach { assertTrue(it.fileName, it.fileName.endsWith(".litertlm")) }
     }
 
     @Test
@@ -85,12 +70,14 @@ class ModelCatalogTest {
     @Test
     fun `an unknown or missing id falls back to the default`() {
         assertEquals(Models.DEFAULT, Models.byId(null))
-        // Chats pinned to models dropped from the catalogue must still open.
-        assertEquals(Models.DEFAULT, Models.byId("qwen2.5-1.5b-instruct-q8-4k"))
-        assertEquals(Models.QWEN_1_5B, Models.byId(Models.QWEN_1_5B.id))
-        // Models pulled for being unusable must not resurrect via a pinned chat.
-        assertEquals(Models.DEFAULT, Models.byId("phi-4-mini-q8"))
-        assertEquals(Models.DEFAULT, Models.byId("tinyllama-1.1b-q8"))
+        assertEquals(Models.QWEN_3_5_2B, Models.byId(Models.QWEN_3_5_2B.id))
+        // Chats pinned to models that were removed must still open.
+        listOf(
+            "deepseek-r1-distill-1.5b-q8",
+            "qwen2.5-1.5b-instruct-q8",
+            "phi-4-mini-q8",
+            "tinyllama-1.1b-q8"
+        ).forEach { assertEquals(it, Models.DEFAULT, Models.byId(it)) }
     }
 
     @Test

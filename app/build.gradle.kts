@@ -26,8 +26,8 @@ android {
         versionName = maikVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // MediaPipe ships four ABIs of a ~27 MB native library. Every phone that
-        // can hold a 1.7B model is arm64, and dropping the rest halves the APK.
+        // Every phone that can hold a 2B model is arm64; shipping other ABIs of the
+        // native runtime only makes the download bigger.
         ndk {
             abiFilters += "arm64-v8a"
         }
@@ -58,7 +58,7 @@ android {
         }
 
         release {
-            // R8 is left off: MediaPipe's JNI entry points need keep rules that
+            // R8 is left off: the runtime's JNI entry points need keep rules that
             // aren't worth debugging for a sideloaded app.
             isMinifyEnabled = false
             if (hasKeystore) signingConfig = signingConfigs.getByName("release")
@@ -70,9 +70,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-    }
 
     buildFeatures {
         compose = true
@@ -94,9 +91,16 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
+}
+
 dependencies {
-    // On-device inference. Runs a LiteRT .task bundle locally — no AICore, no cloud.
-    implementation("com.google.mediapipe:tasks-genai:0.10.35")
+    // On-device inference with LiteRT-LM, Google's current runtime. It applies each
+    // model's own chat template and stop tokens, which the MediaPipe runtime did not.
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.17.1")
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("androidx.core:core-ktx:1.15.0")

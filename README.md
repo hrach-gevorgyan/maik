@@ -34,7 +34,7 @@ Download the APK from [**Releases**](https://github.com/hrach-gevorgyan/maik/rel
 and open it on your phone. You will need "install unknown apps" enabled for whatever
 you open it from.
 
-On first launch it fetches a model — around 1.7 GB, once, over Wi-Fi. That is the
+On first launch it fetches a model — around 2.4 GB, once, over Wi-Fi. That is the
 only download it will ever ask for.
 
 > **Note**
@@ -59,32 +59,29 @@ only download it will ever ask for.
 
 ## The models
 
-Two, both around 1.5B, because that is the size a phone actually runs.
+Two ungated models, both built to run on a phone.
 
 | Model | Download | License | Character |
 |---|---|---|---|
-| **DeepSeek-R1 1.5B** — default | 1.7 GB | MIT | Reasons before answering, and shows the working |
-| **Qwen2.5 1.5B** | 1.5 GB | Apache 2.0 | Answers straight away. A steady fallback |
+| **Gemma 4 E2B** — default | 2.4 GB | Apache 2.0 | Google's on-device model. The most capable here |
+| **Qwen3.5 2B** | 2.0 GB | Apache 2.0 | Smaller download, quick, can think before answering |
 
 Switch from the chat header or in Settings. Each stays on disk once fetched.
 
 <details>
-<summary><b>Why only two — and why nothing bigger</b></summary>
+<summary><b>Why these two — and why nothing bigger</b></summary>
 
 <br>
 
-**Almost everything else is gated.** Every Gemma repository, Gemma 2, and Llama 3.2
-return `401` without a Hugging Face account. Shipping one would put a sign-in wall in
-front of first launch.
+**Newer models only ship as LiteRT-LM bundles**, so maik runs on Google's LiteRT-LM
+runtime. Nobody publishes the older `.task` format anymore.
 
 **Bigger is not better on a phone.** Phi-4-mini at 3.8B was tried and pulled: it ran
 the device hot enough to throttle, took over a minute per answer, and then locked up.
-`Models.MAX_SENSIBLE_BYTES` now caps what may be offered, and a test enforces it.
+`Models.MAX_SENSIBLE_BYTES` caps what may be offered, and a test enforces it.
 
-**TinyLlama was tried and pulled too** — it returned empty replies on device.
-
-Only `.task` bundles work at all. LiteRT-LM `.litertlm` files carry no SentencePiece
-tokenizer and fail to load, which cost this project three broken releases.
+**Only generic builds are listed.** The `-gpu`, `-web` and chip-specific variants
+refuse to load anywhere else — and CPU is the default.
 
 </details>
 
@@ -114,39 +111,36 @@ So maik brings its own model — one nobody can revoke from a dashboard.
 
 ## How it works
 
-A `.task` model bundle running through **MediaPipe LLM Inference**, entirely inside
-the app's own process.
+A `.litertlm` model running on **LiteRT-LM**, entirely inside the app's own process.
 
 | | |
 |---|---|
-| Runtime | `com.google.mediapipe:tasks-genai` |
+| Runtime | `com.google.ai.edge.litertlm:litertlm-android` |
 | Context | 4096 tokens |
 | Backend | CPU by default; GPU is opt-in under Settings → Behaviour |
 | Storage | App-private. Uninstalling removes everything |
 
 <details>
-<summary><b>Four things that are not obvious</b></summary>
+<summary><b>Things that are not obvious</b></summary>
 
 <br>
 
-**Never write a prompt template.** Every bundle carries its own inside `METADATA` and
-the runtime applies it — DeepSeek uses `<｜User｜>`, Qwen `<|im_start|>user`. Adding
-one on top wraps the model's markup in a second layer, and it answers a question
-nobody asked. This was the cause of the garbled replies in 1.4.x.
+**The runtime owns the prompt format.** Each bundle carries its own chat template and
+stop tokens, and LiteRT-LM applies them. maik sends plain text and the conversation
+history; it never builds a prompt by hand. Doing that on the previous runtime is what
+produced garbled, rambling replies in 1.4 and 1.5.
 
-**Every reply must be trimmed.** These models do not stop at their own end-of-turn
-token. They emit it as ordinary text and carry on inventing both halves of a
-conversation until the budget runs out.
-[`Reply.kt`](app/src/main/java/com/maik/app/Reply.kt) cuts there, and repairs
-byte-level tokenizer leakage — a mangled emoji arrives as a run of Latin characters.
+**One runtime conversation per chat.** It keeps the model's context between turns.
+Reopening a chat seeds a fresh one with the most recent turns that fit the window.
 
-**The GPU cannot be trusted to fail safely.** Its delegate crashes natively on some
-drivers, which no `catch` can see. It is off by default, and a breadcrumb written
-before each attempt means a crash during load turns it back off by itself.
+**Stop really stops.** Generation is cancelled in the runtime, not merely ignored.
 
-**Downloads land in a `.part` file** and are renamed only on success, then opened and
-inspected before being accepted. A dropped connection can never leave behind
-something that merely looks like a working model.
+**The GPU cannot be trusted to fail safely.** It crashes natively on some drivers,
+which no `catch` can see. It is off by default, and a breadcrumb written before each
+attempt means a crash during load turns it back off by itself.
+
+**Downloads land in a `.part` file**, are checked for the `LITERTLM` header, and only
+then renamed. A dropped connection or an error page can never pass for a model.
 
 </details>
 
@@ -155,11 +149,10 @@ something that merely looks like a working model.
 Four releases were broken by model bundles nobody inspected. Two checks now stand in
 the way, and both run in CI.
 
-**[`tools/verify_models.py`](tools/verify_models.py)** reads each bundle's ZIP
-directory over HTTP range requests — a few hundred kilobytes, not gigabytes — and
-confirms it holds a tokenizer, weights and a prompt template, that its declared size
-matches the server, and that its context window matches the `ekv` figure in its
-filename.
+**[`tools/verify_models.py`](tools/verify_models.py)** reads the first bytes of each
+bundle over an HTTP range request — not gigabytes — and confirms it is a real
+LiteRT-LM file of the declared size, a generic build, from an ungated source, and
+small enough for a phone.
 
 ```bash
 python tools/verify_models.py
@@ -167,8 +160,8 @@ python tools/verify_models.py
 
 **[`GoldenTest.kt`](app/src/androidTest/java/com/maik/app/GoldenTest.kt)** boots an
 emulator, downloads the real default model, loads it and asks for the capital of
-France. It fails unless the answer says Paris and the reply is free of tokenizer
-debris. **A release cannot publish unless it passes.**
+France. It fails unless the answer says Paris, the reply stops on its own without
+leaking markup, and a conversation remembers an earlier turn. **A release cannot publish unless it passes.**
 
 ```bash
 ./gradlew connectedDebugAndroidTest
@@ -186,7 +179,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 Or open the folder in Android Studio and press Run.
 
 ```bash
-./gradlew test                      # 43 unit tests
+./gradlew test                      # 42 unit tests
 ./gradlew connectedDebugAndroidTest # golden test, needs a device or emulator
 ```
 
@@ -245,7 +238,7 @@ app/src/main/java/com/maik/app/
 ├── ChatViewModel.kt     stage machine, model lifecycle, streaming, context budget
 ├── ModelStore.kt        the model catalogue and a download that cannot half-succeed
 ├── DownloadService.kt   foreground service, so downloads survive the lock screen
-├── Reply.kt             trims replies and repairs tokenizer leakage
+├── Reply.kt             last-line cleanup of reply text
 ├── Conversations.kt     chat model, JSON persistence, relative timestamps
 ├── Markdown.kt          a small Markdown parser and renderer
 ├── Thinking.kt          the reasoning indicator and its collapsible trace
@@ -261,11 +254,12 @@ app/src/main/java/com/maik/app/
   older messages fall out of range.
 - **No download resume.** Cancel at 1.4 GB and you start over.
 - **No UI tests.** The logic and the model pipeline are covered; the screens are not.
+- **First load is slow.** The runtime prepares a cached copy of the model once; later loads are quick.
 
 ## Requirements
 
 - Android **8.0 (API 26)** or newer, **ARM64**
-- ~2 GB free storage for the default model
+- ~3 GB free storage for the default model
 - Android Studio Ladybug or newer, JDK 17+, to build
 - No special hardware, no allowlist, no AICore
 
@@ -275,9 +269,9 @@ app/src/main/java/com/maik/app/
 <sub>
 
 Typeface [Hanken Grotesk](https://github.com/hanken-design/HK-Grotesk) by Hanken Design Co., SIL OFL 1.1<br>
-Models [DeepSeek-R1](https://huggingface.co/litert-community/DeepSeek-R1-Distill-Qwen-1.5B)
-and [Qwen2.5](https://huggingface.co/litert-community/Qwen2.5-1.5B-Instruct),
-converted to LiteRT by [litert-community](https://huggingface.co/litert-community)
+Models [Gemma 4](https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm)
+and [Qwen3.5](https://huggingface.co/litert-community/Qwen3.5-2B),
+converted to LiteRT-LM by [litert-community](https://huggingface.co/litert-community)
 
 </sub>
 </div>

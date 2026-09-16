@@ -480,7 +480,7 @@ private fun AboutPage(vm: ChatViewModel) {
             Wordmark(size = 40)
             Spacer(Modifier.height(16.dp))
             Text(
-                "maik runs its model locally through MediaPipe LiteRT. The only " +
+                "maik runs its model locally with Google's LiteRT-LM runtime. The only " +
                     "network request it ever makes is the one that downloads a model. " +
                     "Your conversations never leave this device, and there is no " +
                     "account, no key and no telemetry.",
