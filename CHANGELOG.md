@@ -7,6 +7,24 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 2.9.3 — 17 September 2026
+
+**maik stops making things up.**
+
+Asked about anything factual, maik could answer with something that merely looked
+right: a plausible command, a plausible price, a plausible timetable. That came from
+how it was set up to pick words — it was tuned for imagination rather than accuracy.
+It is now tuned the other way: on the same question it sticks to what it actually
+knows, and says when it does not know instead of filling the gap. Regenerate still
+gives you a different wording.
+
+It is also told, in as many words, not to invent names, numbers, quotations or
+commands, and that "I am not sure, you would need to check" is a good answer. And
+when a question could be read two ways, it answers the likelier one and tells you
+which, instead of sending you back to rephrase.
+
+---
+
 ## 2.9.2 — 17 September 2026
 
 **maik knows it is offline, and says so straight away.**

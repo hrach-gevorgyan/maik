@@ -1036,10 +1036,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 // cheapest answer is a shorter one. Long enough for a few paragraphs,
                 // short enough that a looping model gives up rather than cooking.
                 maxOutputToken = replyCap,
+                // A small model asked to be imaginative invents: fake functions, fake
+                // timetables, fake prices, all stated confidently. Narrow sampling keeps
+                // it to what it actually knows, which is the whole point of a pocket
+                // assistant. The seed still changes, so Regenerate gives something new.
                 samplerConfig = SamplerConfig(
-                    topK = 40,
-                    topP = 0.95,
-                    temperature = 0.7,
+                    topK = 20,
+                    topP = 0.9,
+                    temperature = 0.3,
                     seed = (System.nanoTime() and 0x7fffffff).toInt()
                 ),
                 thinkingConfig = ThinkingConfig(false)
