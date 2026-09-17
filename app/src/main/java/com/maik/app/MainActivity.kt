@@ -8,6 +8,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -31,6 +32,8 @@ class MainActivity : ComponentActivity() {
     private val vm: ChatViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Before super.onCreate, as the splash screen library requires.
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         // A long decode is exactly the workload this mode exists for: a lower clock the

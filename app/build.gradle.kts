@@ -7,8 +7,8 @@ plugins {
 
 // Single source of truth for the version, overridable from CI:
 //   ./gradlew assembleRelease -PmaikVersionName=1.2.0 -PmaikVersionCode=5
-val maikVersionName: String = (findProperty("maikVersionName") as String?) ?: "2.3.0"
-val maikVersionCode: Int = (findProperty("maikVersionCode") as String?)?.toInt() ?: 20300
+val maikVersionName: String = (findProperty("maikVersionName") as String?) ?: "2.4.0"
+val maikVersionCode: Int = (findProperty("maikVersionCode") as String?)?.toInt() ?: 20400
 
 // Set by the release workflow. Keeps emulator-only architectures out of an APK
 // that real people will install.
@@ -58,11 +58,26 @@ android {
         }
 
         release {
-            // R8 is left off: the runtime's JNI entry points need keep rules that
-            // aren't worth debugging for a sideloaded app.
-            isMinifyEnabled = false
-            if (hasKeystore) signingConfig = signingConfigs.getByName("release")
+            // Shrunk and optimised like any shipped app: smaller download, faster
+            // start, no debug hooks. The runtime's JNI surface is kept in
+            // proguard-rules.pro.
+            // For checking the shrunk build on an x86 emulator; never set when shipping.
+            if (findProperty("maikEmulatorRelease") == "true") ndk { abiFilters.add("x86_64") }
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig = when {
+                hasKeystore -> signingConfigs.getByName("release")
+                // Without the real key, sign with the debug key so the release build can
+                // still be installed and tested. Such an APK must never be published.
+                else -> signingConfigs.getByName("debug")
+            }
         }
+    }
+
+    androidResources {
+        // Generates the locale list Android 13+ uses for per-app language settings.
+        generateLocaleConfig = true
     }
 
     compileOptions {
@@ -105,6 +120,7 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")

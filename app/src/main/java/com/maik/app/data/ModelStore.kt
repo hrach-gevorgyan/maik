@@ -87,12 +87,11 @@ object Models {
     val ALL = listOf(GEMMA_4_E2B, LFM_2_5_1_2B)
 
     /**
-     * The small model, on purpose. Decoding re-reads the whole model for every word it
-     * writes, so a 0.7 GB model costs roughly a third of the memory traffic — and a
-     * third of the heat — of a 2.6 GB one. Gemma is there for people who want the
-     * better answers and will accept a warmer phone.
+     * Gemma, because answer quality is the point. It is the warmer of the two — it
+     * re-reads 2.6 GB for every word it writes — so the CPU default, the capped reply
+     * length and the thermal pacing exist largely to make Gemma comfortable to use.
      */
-    val DEFAULT = LFM_2_5_1_2B
+    val DEFAULT = GEMMA_4_E2B
 
     /**
      * A hard ceiling on what may be offered. Phi-4-mini at 3.7 GB ran the phone hot

@@ -32,6 +32,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -431,7 +432,7 @@ private fun ChatEmptyState(modelLabel: String, ready: Boolean) {
 @Composable
 private fun ContextNotice(dropped: Int) {
     ContextNotice(
-        stringResource(R.string.chat_earlier_message_no_longer_fit, dropped, if (dropped == 1) "" else "s")
+        pluralStringResource(R.plurals.chat_earlier_messages_dropped, dropped, dropped)
     )
 }
 

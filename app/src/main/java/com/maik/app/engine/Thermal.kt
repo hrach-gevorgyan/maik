@@ -49,8 +49,8 @@ object Thermal {
      *
      * Thermal status only changes once throttling has already started, which is too
      * late — the phone is hot by then. Headroom is a forecast, so maik can ease off
-     * before the hardware forces it to. NaN means the phone doesn't offer the figure,
-     * and Android returns NaN anyway if it is asked more than once a second.
+     * before the hardware forces it to. NaN means the phone doesn't offer the figure;
+     * Android also returns NaN if asked too often, hence the ten-second cache.
      */
     fun headroom(): Float {
         val manager = power ?: return Float.NaN

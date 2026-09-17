@@ -58,6 +58,27 @@ sealed interface Block {
     data class Code(val text: String, val language: String?) : Block
 }
 
+/**
+ * Where a reply can be cut so that everything before the cut is finished and will
+ * never parse differently: the last blank line that isn't inside a code fence.
+ * Returns 0 when there is no such point yet.
+ */
+fun stableSplit(source: String): Int {
+    var fenceOpen = false
+    var lastSafe = 0
+    var i = 0
+    while (i < source.length) {
+        if (source.startsWith("```", i) && (i == 0 || source[i - 1] == '\n')) {
+            fenceOpen = !fenceOpen
+            i += 3
+            continue
+        }
+        if (!fenceOpen && source.startsWith("\n\n", i)) lastSafe = i + 2
+        i++
+    }
+    return lastSafe
+}
+
 fun parseMarkdown(source: String): List<Block> {
     val blocks = mutableListOf<Block>()
     val lines = source.lines()
@@ -170,7 +191,14 @@ fun inlineMarkdown(source: String, codeColor: Color): AnnotatedString = buildAnn
 
 @Composable
 fun MarkdownText(source: String, color: Color, modifier: Modifier = Modifier) {
-    val blocks = remember(source) { parseMarkdown(source) }
+    // While a reply streams, only its last paragraph is still changing. Finished
+    // paragraphs are parsed once and reused, so a long answer doesn't get re-parsed
+    // from the top a dozen times a second.
+    val split = stableSplit(source)
+    val head = source.substring(0, split)
+    val tail = source.substring(split)
+    val headBlocks = remember(head) { parseMarkdown(head) }
+    val blocks = remember(headBlocks, tail) { headBlocks + parseMarkdown(tail) }
     val scheme = MaterialTheme.colorScheme
     val codeColor = scheme.primary
 

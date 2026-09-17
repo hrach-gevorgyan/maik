@@ -2,4 +2,5 @@
 <resources>
     <!-- Same ink the app itself paints on. -->
     <color name="ic_launcher_background">#08080B</color>
+    <color name="maik_background">#FFF6F6F8</color>
 </resources>

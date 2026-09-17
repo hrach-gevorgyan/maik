@@ -1,6 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Maik" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@android:color/black</item>
+    <!-- The window behind Compose, visible for a frame or two at launch. It matches the
+         app's own background so there is no flash of the wrong colour. -->
+    <style name="Theme.Maik" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/maik_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <!-- Android 12+ draws its own launch screen; this makes it maik's rather than a
+         generic one, and hands over to Theme.Maik as soon as the first frame is ready. -->
+    <style name="Theme.Maik.Starting" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/maik_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.Maik</item>
     </style>
 </resources>

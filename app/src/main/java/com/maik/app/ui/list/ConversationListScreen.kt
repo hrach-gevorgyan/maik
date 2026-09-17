@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -129,7 +130,7 @@ fun ConversationListScreen(vm: ChatViewModel) {
     menuFor?.let { convo ->
         ActionSheet(
             title = convo.title,
-            subtitle = stringResource(R.string.list_messages, convo.messages.size, relativeTime(convo.updatedAt)),
+            subtitle = pluralStringResource(R.plurals.list_message_count, convo.messages.size, convo.messages.size, relativeTime(convo.updatedAt)),
             actions = listOf(
                 SheetAction(if (convo.pinned) stringResource(R.string.list_unpin) else stringResource(R.string.list_pin_to_top)) {
                     vm.togglePin(convo.id)
@@ -155,7 +156,7 @@ fun ConversationListScreen(vm: ChatViewModel) {
             title = { DialogTitle(stringResource(R.string.list_delete_this_chat)) },
             text = {
                 Text(
-                    stringResource(R.string.list_and_its_messages_will_be, convo.title, convo.messages.size),
+                    pluralStringResource(R.plurals.list_delete_detail, convo.messages.size, convo.title, convo.messages.size),
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurfaceVariant
                 )

@@ -87,4 +87,23 @@ class MarkdownTest {
         assertEquals(listOf(Block.Paragraph("-1 degrees")), parseMarkdown("-1 degrees"))
         assertTrue(parseMarkdown("1.5 litres").none { it is Block.Bullet })
     }
+
+    @Test
+    fun `parsing a reply in two halves gives the same blocks as parsing it whole`() {
+        val reply = "# Title\n\nFirst paragraph\nstill first.\n\n- one\n- two\n\n" +
+            "```kotlin\nval a = 1\n\nval b = 2\n```\n\nLast words."
+        // Every prefix is a moment during streaming.
+        for (end in 1..reply.length) {
+            val shown = reply.substring(0, end)
+            val split = stableSplit(shown)
+            val halves = parseMarkdown(shown.substring(0, split)) + parseMarkdown(shown.substring(split))
+            assertEquals("differs at $end chars", parseMarkdown(shown), halves)
+        }
+    }
+
+    @Test
+    fun `a blank line inside a code fence is never a split point`() {
+        val open = "Intro\n\n```\nline\n\nmore"
+        assertEquals("Intro\n\n".length, stableSplit(open))
+    }
 }

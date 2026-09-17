@@ -141,7 +141,6 @@ class DownloadService : Service() {
         getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
     private fun createChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
             CHANNEL_ID,
             getString(R.string.download_channel_name),
@@ -204,11 +203,7 @@ class DownloadService : Service() {
             val intent = Intent(context, DownloadService::class.java)
                 .putExtra(EXTRA_MODEL_ID, modelId)
             try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
+                context.startForegroundService(intent)
             } catch (e: IllegalStateException) {
                 // Includes ForegroundServiceStartNotAllowedException.
                 DownloadBus.events.tryEmit(

@@ -76,9 +76,8 @@ jobs:
             echo "::warning::No KEYSTORE_BASE64 secret — falling back to a debug-signed build."
           fi
 
-      # An unsigned APK cannot be installed on any Android device, so without a
-      # keystore we ship the debug variant instead: at least it carries a
-      # signature, using the throwaway key Gradle generates on the runner.
+      # Always the shrunk, non-debuggable release variant. Without the real keystore
+      # Gradle signs it with the runner's throwaway debug key, so it still installs.
       - name: Build the APK
         env:
           MAIK_KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
@@ -86,12 +85,7 @@ jobs:
           MAIK_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           MAIK_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then
-            TASK=assembleRelease
-          else
-            TASK=assembleDebug
-          fi
-          ./gradlew test $TASK \
+          ./gradlew test lintRelease assembleRelease \
             -PmaikVersionName=${{ needs.version.outputs.name }} \
             -PmaikVersionCode=${{ needs.version.outputs.code }} \
             -PmaikShipping=true \
@@ -100,11 +94,7 @@ jobs:
       - name: Name the artifact, and refuse to ship it unsigned
         id: apk
         run: |
-          if [ "${{ steps.keystore.outputs.signed }}" = "true" ]; then
-            SRC=$(find app/build/outputs/apk/release -name "*.apk" ! -name "*unsigned*" | head -1)
-          else
-            SRC=$(find app/build/outputs/apk/debug -name "*.apk" | head -1)
-          fi
+          SRC=$(find app/build/outputs/apk/release -name "*.apk" ! -name "*unsigned*" | head -1)
 
           if [ -z "$SRC" ]; then
             echo "::error::No installable APK was produced."

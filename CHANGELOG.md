@@ -7,6 +7,33 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 2.4.0 — 17 September 2026
+
+**Built like a shipped app.**
+
+- **Gemma is the default again**, with the cooler CPU settings, capped replies and thermal
+  pacing from 2.3 now working in its favour.
+- **Fixed a crash** when a model was downloading while a chat was open: the progress line
+  in the chat had a broken percent sign.
+- **A proper launch screen** in maik's own colours, and no more black flash before the
+  first frame in light mode.
+- **Predictive back** — the Android 14+ gesture that previews where Back goes.
+- **Per-app language ready:** Android 13+ can list maik under its language settings once
+  translations exist. Counts like "1 message" / "2 messages" are now real plurals, so they
+  translate correctly.
+- **Releases are shrunk and optimised:** the APK drops from about 59 MB to 24 MB, starts
+  faster, and is no longer a debuggable build.
+- **Long replies render more efficiently:** finished paragraphs are formatted once instead
+  of being re-formatted from the top on every update.
+
+### Under the hood
+
+- Android lint now runs on every push and fails the build on errors.
+- New tests check every string resource can actually be formatted, and that a reply parsed
+  in pieces while it streams matches the same reply parsed whole. 71 unit tests.
+
+---
+
 ## 2.3.0 — 17 September 2026
 
 **Less heat, from the research up.** Writing a reply re-reads the whole model for every

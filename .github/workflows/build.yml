@@ -24,8 +24,18 @@ jobs:
       - name: Verify every offered model is actually loadable
         run: python tools/verify_models.py
 
-      - name: Test and assemble
-        run: ./gradlew test assembleDebug --no-daemon
+      # Lint fails the build on errors — it caught a format string that would have
+      # crashed the chat while a download was running.
+      - name: Test, lint and assemble
+        run: ./gradlew test lintDebug assembleDebug assembleRelease --no-daemon
+
+      - name: Publish lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: app/build/reports/lint-results-debug.html
+          retention-days: 14
 
       - name: Publish test results
         if: always()
