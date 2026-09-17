@@ -7,8 +7,8 @@ plugins {
 
 // Single source of truth for the version, overridable from CI:
 //   ./gradlew assembleRelease -PmaikVersionName=1.2.0 -PmaikVersionCode=5
-val maikVersionName: String = (findProperty("maikVersionName") as String?) ?: "2.0.1"
-val maikVersionCode: Int = (findProperty("maikVersionCode") as String?)?.toInt() ?: 20001
+val maikVersionName: String = (findProperty("maikVersionName") as String?) ?: "2.0.2"
+val maikVersionCode: Int = (findProperty("maikVersionCode") as String?)?.toInt() ?: 20002
 
 // Set by the release workflow. Keeps emulator-only architectures out of an APK
 // that real people will install.

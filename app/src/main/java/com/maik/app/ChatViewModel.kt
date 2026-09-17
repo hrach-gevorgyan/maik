@@ -95,7 +95,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     var settingsPage by mutableStateOf(SettingsPage.Root)
         private set
-    var themeMode by mutableStateOf(ThemeMode.LIGHT)
+    var themeMode by mutableStateOf(ThemeMode.SYSTEM)
         private set
     var systemPrompt by mutableStateOf(DEFAULT_SYSTEM_PROMPT)
         private set

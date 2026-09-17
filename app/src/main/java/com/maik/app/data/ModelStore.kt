@@ -128,8 +128,8 @@ class ModelStore(context: Context) {
         private set
 
     var themeMode: ThemeMode =
-        runCatching { ThemeMode.valueOf(prefs.getString("theme", null) ?: "LIGHT") }
-            .getOrDefault(ThemeMode.LIGHT)
+        runCatching { ThemeMode.valueOf(prefs.getString("theme", null) ?: "SYSTEM") }
+            .getOrDefault(ThemeMode.SYSTEM)
         private set
 
     var systemPrompt: String = prefs.getString("system", DEFAULT_SYSTEM_PROMPT)

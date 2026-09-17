@@ -7,6 +7,16 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 2.0.2 — 17 September 2026
+
+- **Follows your phone's theme by default.** New installs match the system's light or
+  dark mode; you can still pick one under Settings → Appearance.
+- **Vibration you can actually feel.** Taps now use the phone's vibration motor
+  directly, since the standard Android tap feedback is muted or faint on many phones,
+  Samsung's included. A soft tick also tells you when a reply has finished.
+
+---
+
 ## 2.0.1 — 17 September 2026
 
 **Smoother chat, and a likely fix for crashes right after install.**

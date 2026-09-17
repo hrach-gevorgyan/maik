@@ -111,15 +111,50 @@ fun RisesIn(
   */
 val LocalHaptics = staticCompositionLocalOf { true }
 
-/** A tap buzz, silent when the user has turned haptics off. */
+/**
+ * A tap buzz, silent when the user has turned haptics off. It drives the vibrator
+ * directly: the view-based haptic that Compose uses is muted or barely felt on many
+ * phones, Samsung's included.
+ */
 @Composable
-fun tap(): () -> Unit {
+fun tap(): () -> Unit = buzzer(strong = true)
+
+/** A lighter tick, for things that happen rather than things you pressed. */
+@Composable
+fun tick(): () -> Unit = buzzer(strong = false)
+
+@Composable
+private fun buzzer(strong: Boolean): () -> Unit {
     val enabled = LocalHaptics.current
-    val haptics = LocalHapticFeedback.current
-    return {
-        if (enabled) haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val vibrator = remember(context) { vibratorOf(context) }
+    return remember(enabled, vibrator, strong) {
+        {
+            if (enabled && vibrator?.hasVibrator() == true) {
+                runCatching {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        vibrator.vibrate(
+                            android.os.VibrationEffect.createPredefined(
+                                if (strong) android.os.VibrationEffect.EFFECT_CLICK
+                                else android.os.VibrationEffect.EFFECT_TICK
+                            )
+                        )
+                    } else {
+                        vibrator.vibrate(android.os.VibrationEffect.createOneShot(if (strong) 20L else 10L, 120))
+                    }
+                }
+            }
+        }
     }
 }
+
+private fun vibratorOf(context: android.content.Context): android.os.Vibrator? =
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+        (context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager)?.defaultVibrator
+    } else {
+        @Suppress("DEPRECATION")
+        context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+    }
 
 /** Convenience for the many places that need their own interaction source. */
 @Composable

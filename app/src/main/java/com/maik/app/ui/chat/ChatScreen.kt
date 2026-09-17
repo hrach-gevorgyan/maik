@@ -45,6 +45,13 @@ internal fun ChatScreen(vm: ChatViewModel) {
     var input by rememberSaveable(convo.id) { mutableStateOf("") }
     val listState = rememberLazyListState()
     val buzz = tap()
+    val done = tick()
+    // A soft tick when a reply lands, so you can look away while it writes.
+    var wasBusy by remember { mutableStateOf(vm.busy) }
+    LaunchedEffect(vm.busy) {
+        if (wasBusy && !vm.busy) done()
+        wasBusy = vm.busy
+    }
     val count = convo.messages.size
     var pickingModel by remember { mutableStateOf(false) }
 
