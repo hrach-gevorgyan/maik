@@ -24,9 +24,11 @@ jobs:
     steps:
       - name: Work out the version
         id: version
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version }}
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.version }}"
+            VERSION="$VERSION_INPUT"
           else
             VERSION="${GITHUB_REF_NAME#v}"
           fi
@@ -124,7 +126,7 @@ jobs:
           VERSION="${{ needs.version.outputs.name }}"
           # Everything between this version's heading and the next one.
           awk -v v="## $VERSION" '
-            $0 ~ "^" v { found = 1; next }
+            index($0, v " ") == 1 || $0 == v { found = 1; next }
             found && /^## / { exit }
             found { print }
           ' CHANGELOG.md > notes.md
@@ -150,5 +152,6 @@ jobs:
         with:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', needs.version.outputs.name) || github.ref_name }}
           name: maik ${{ needs.version.outputs.name }}
+          target_commitish: ${{ github.sha }}
           body_path: notes.md
           files: ${{ steps.apk.outputs.path }}

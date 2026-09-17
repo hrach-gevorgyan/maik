@@ -4,6 +4,10 @@
 -keepclassmembers class * {
     native <methods>;
 }
+# The runtime depends on kotlin-reflect and Gson, which read Kotlin metadata and
+# field names at run time.
+-keep class kotlin.Metadata { *; }
+-dontwarn com.google.ai.edge.litertlm.**
 
 # Chat history is stored as JSON. The serialization plugin generates the
 # serializers; keep them and the classes they describe.

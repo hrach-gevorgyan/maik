@@ -27,10 +27,10 @@ object Thermal {
     /** Throttling hard. Anything long-running should stop rather than add to it. */
     const val HOT = PowerManager.THERMAL_STATUS_SEVERE
 
-    private var listening = false
-    private var power: PowerManager? = null
-    private var lastHeadroomAt = 0L
-    private var lastHeadroom = Float.NaN
+    @Volatile private var listening = false
+    @Volatile private var power: PowerManager? = null
+    @Volatile private var lastHeadroomAt = 0L
+    @Volatile private var lastHeadroom = Float.NaN
 
     /** Starts watching. Safe to call repeatedly; only the first call does anything. */
     fun watch(context: Context) {
@@ -61,25 +61,6 @@ object Thermal {
         lastHeadroom = runCatching { manager.getThermalHeadroom(FORECAST_SECONDS) }
             .getOrDefault(Float.NaN)
         return lastHeadroom
-    }
-
-    /**
-     * How much of the time maik should be allowed to decode, from 1.0 (flat out) down.
-     *
-     * Throttling is a cliff: once the hardware steps in it takes far more away than it
-     * needs to. Giving back a quarter of the speed early keeps the phone under that
-     * cliff, and a long answer arrives sooner than it would have done at full tilt.
-     */
-    fun dutyCycle(keepCool: Boolean): Float {
-        if (!keepCool) return 1f
-        val h = headroom()
-        if (h.isNaN()) return if (isWarm()) 0.7f else 1f
-        return when {
-            h >= 0.95f -> 0.5f
-            h >= 0.85f -> 0.7f
-            h >= 0.75f -> 0.85f
-            else -> 1f
-        }
     }
 
     // Android's own guidance: asking more often than this can simply return nothing.

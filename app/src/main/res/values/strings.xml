@@ -64,19 +64,18 @@ Everything you start stays on this phone.</string>
     <string name="settings_a_short_tap_when_you">A short tap when you send, stop, or press and hold.</string>
     <string name="settings_a_standing_note_handed_to">A standing note handed to the model before every conversation. It sets the tone and the ground rules, so you don\'t have to repeat yourself. Changes apply to your next message.</string>
     <string name="settings_about">About</string>
-    <string name="settings_all_conversations_permanently_there_is">All %1$s conversations, permanently. There is no backup — that\'s the point.</string>
-    <string name="settings_answers_with_half_the_processor">Answers with half the processor cores, and stops a reply if the phone starts overheating. Turn it off for the fastest possible replies.</string>
+    <string name="settings_answers_with_half_the_processor">Uses fewer processor cores, keeps replies to a few paragraphs, and slows down before the phone overheats. Turn it off for the fastest, longest replies.</string>
     <string name="settings_appearance">Appearance</string>
     <string name="settings_behaviour">Behaviour</string>
     <string name="settings_cancel">Cancel</string>
-    <string name="settings_characters">%1$s characters</string>
+    
     <string name="settings_context">CONTEXT</string>
     <string name="settings_cool"> · cool</string>
     <string name="settings_cpu">CPU</string>
     <string name="settings_currently_running_on_the_cpu">Currently running on the CPU.</string>
     <string name="settings_currently_running_on_the_gpu">Currently running on the GPU.</string>
     <string name="settings_dark">Dark</string>
-    <string name="settings_dark_is_the_design_maik">Dark is the design maik was drawn for. Light exists because phones get used outdoors.</string>
+    <string name="settings_dark_is_the_design_maik">maik follows your phone unless you choose otherwise. Dark is easier on the eyes at night; light reads better outdoors.</string>
     <string name="settings_delete">Delete %1$s?</string>
     <string name="settings_delete_2">Delete</string>
     <string name="settings_delete_all">Delete all</string>
@@ -192,7 +191,6 @@ Say no and the download still runs exactly the same.</string>
     <string name="download_notification_cancel">Cancel</string>
     <string name="download_channel_name">Model download</string>
     <string name="download_channel_detail">Shows progress while maik fetches its model.</string>
-    <string name="chat_easing_off">Answering a little slower to keep the phone cool</string>
     <string name="settings_heavy_model">Warms the phone up: it reads %1$s MB for every word it writes.</string>
 
     <plurals name="chat_earlier_messages_dropped">
@@ -207,4 +205,29 @@ Say no and the download still runs exactly the same.</string>
         <item quantity="one">\"%1$s\" and its one message will be gone for good.</item>
         <item quantity="other">\"%1$s\" and its %2$d messages will be gone for good.</item>
     </plurals>
+    <string name="settings_vibration">Vibration</string>
+    <string name="settings_instructions_default">Default</string>
+    <string name="settings_instructions_saved">Instructions saved. They apply from your next message.</string>
+    <string name="settings_model_deleted">%1$s deleted. %2$d MB freed.</string>
+    <string name="settings_wait_for_load">You can delete a model once the current one has finished loading.</string>
+    <string name="list_clear_search">Clear search</string>
+    <string name="list_search_label">Search conversations</string>
+    <string name="list_action_pin">Pin to top</string>
+    <string name="list_action_unpin">Unpin</string>
+    <string name="list_action_rename">Rename</string>
+    <string name="list_action_delete">Delete</string>
+    <string name="common_options">Options</string>
+    <plurals name="settings_character_count">
+        <item quantity="one">%1$d character</item>
+        <item quantity="other">%1$d characters</item>
+    </plurals>
+    <plurals name="settings_delete_all_detail">
+        <item quantity="one">Your one conversation, permanently. There is no backup — that\'s the point.</item>
+        <item quantity="other">All %1$d conversations, permanently. There is no backup — that\'s the point.</item>
+    </plurals>
+    <string name="chat_too_hot_to_start">The phone is too hot to answer right now. Give it a minute to cool down, then try again.</string>
+    <string name="download_verifying">Checking the file…</string>
+    <string name="download_disk_full">The phone ran out of space. Free some up, then retry to continue from where it stopped.</string>
+    <string name="setup_verifying_title">Checking the download</string>
+    <string name="setup_verifying_detail">Making sure every byte arrived intact. This takes a little while for a large model.</string>
 </resources>

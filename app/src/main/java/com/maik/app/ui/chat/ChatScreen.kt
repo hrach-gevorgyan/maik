@@ -165,11 +165,6 @@ internal fun ChatScreen(vm: ChatViewModel) {
                 }
             }
 
-            if (vm.easingOff && vm.busy) {
-                item(key = "easing") {
-                    ContextNotice(stringResource(R.string.chat_easing_off))
-                }
-            }
             if (vm.stoppedForHeat) {
                 item(key = "heat") {
                     ContextNotice(
@@ -243,7 +238,7 @@ internal fun ChatScreen(vm: ChatViewModel) {
                     }
                     if (!vm.busy) {
                         add(SheetAction(stringResource(R.string.chat_delete_message), destructive = true) {
-                            vm.deleteMessage(index)
+                            vm.deleteMessage(index, msg.at)
                             menuFor = null
                         })
                     }
@@ -262,11 +257,12 @@ internal fun ChatScreen(vm: ChatViewModel) {
         }
 
         editing?.let { index ->
-            val original = convo.messages.getOrNull(index)?.text.orEmpty()
+            val editedMessage = convo.messages.getOrNull(index)
+            val original = editedMessage?.text.orEmpty()
             EditMessageDialog(
                 initial = original,
                 onSend = {
-                    vm.editAndResend(index, it)
+                    vm.editAndResend(index, editedMessage?.at ?: -1L, it)
                     editing = null
                 },
                 onDismiss = { editing = null }
@@ -348,7 +344,8 @@ private fun StatusStrip(vm: ChatViewModel, model: ModelSpec) {
                 is Stage.Downloading -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         StripText(
-                            stringResource(R.string.chat_downloading, vm.target.label, (stage.fraction * 100).toInt()),
+                            if (stage.verifying) stringResource(R.string.setup_verifying_title)
+                            else stringResource(R.string.chat_downloading, vm.target.label, (stage.fraction * 100).toInt()),
                             Modifier.weight(1f)
                         )
                         StripAction(stringResource(R.string.chat_view), vm::showDownload)
@@ -519,7 +516,7 @@ private fun ModelPicker(
 @Composable
 private fun EditMessageDialog(initial: String, onSend: (String) -> Unit, onDismiss: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    var draft by remember { mutableStateOf(initial) }
+    var draft by rememberSaveable { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = scheme.surfaceVariant,

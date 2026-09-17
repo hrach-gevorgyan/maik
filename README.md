@@ -47,7 +47,8 @@ only download it will ever ask for.
 
 | | |
 |---|---|
-| **Conversations** | As many as you like, titled from your first message. Search by title or content, long-press to rename or delete |
+| **Conversations** | As many as you like, titled from your first message. Search by title or content; long-press to pin, rename or delete, or swipe to delete |
+| **Message actions** | Long-press any message to copy it, select part of it, share it or delete it — or edit one of yours and ask again from there. Code blocks have their own copy button |
 | **Streaming replies** | Words arrive as they are generated. Stop mid-sentence and whatever was written is kept |
 | **Markdown** | Headings, lists, bold, inline code, and code blocks that scroll rather than stretch the screen |
 | **Regenerate** | Ask again from the same point when an answer misses |
@@ -55,6 +56,8 @@ only download it will ever ask for.
 | **Instructions** | A standing note handed to the model before every conversation, editable in Settings |
 | **Light and dark** | Or follow the system. Colours crossfade rather than snap |
 | **Honest downloads** | A background service with a progress notification. Survives the lock screen, warns before spending mobile data, and verifies the file before accepting it |
+| **Keep the phone cool** | Fewer cores, shorter replies, and a hard stop if the phone overheats — on by default, off for maximum speed |
+| **Built for every screen** | Readable width in landscape, on tablets and in split view; large font sizes; TalkBack labels, headings and actions; predictive back |
 
 ## The models
 
@@ -116,7 +119,7 @@ A `.litertlm` model running on **LiteRT-LM**, entirely inside the app's own proc
 |---|---|
 | Runtime | `com.google.ai.edge.litertlm:litertlm-android` |
 | Context | 2048 tokens — the runtime decodes faster with a smaller budget |
-| Backend | GPU by default on Snapdragon 8 Gen 3 and newer, CPU elsewhere; switchable under Settings → Behaviour |
+| Backend | CPU by default — cheaper per word than the GPU on phones. GPU is opt-in under Settings → Behaviour |
 | Storage | App-private. Uninstalling removes everything |
 
 <details>
@@ -150,8 +153,9 @@ catalogue and starts with the `LITERTLM` header is renamed into place.
 multi-gigabyte model files.
 
 **Heat is treated as a feature, not an accident.** Writing a reply re-reads the whole model
-per word, so maik defaults to the small model, decodes on the CPU with three threads, caps
-reply length, and eases off using Android's thermal forecast before the hardware throttles.
+for every word, so maik decodes on the CPU with three threads (four with Keep cool off),
+caps replies at 384 tokens (768 with Keep cool off), refuses to start while the phone is
+already throttling, and stops a reply once it gets there.
 
 **All user-facing text lives in `res/values/strings.xml`**, English as the source language,
 ready for translation.
@@ -196,8 +200,9 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 Or open the folder in Android Studio and press Run.
 
 ```bash
-./gradlew test                      # 66 unit tests
-./gradlew connectedDebugAndroidTest # golden test, needs a device or emulator
+./gradlew test                      # unit tests
+./gradlew lintDebug                 # Android lint; CI fails on errors
+./gradlew connectedDebugAndroidTest # UI tests and the golden model test, needs a device or emulator
 ```
 
 ## Releasing
@@ -249,16 +254,19 @@ One typeface, one accent, no decoration.
 
 ```
 app/src/main/java/com/maik/app/
-├── MainActivity.kt         the activity and top-level navigation
+├── MainActivity.kt         the activity, splash screen and top-level navigation
+├── Navigation.kt           where Back goes
 ├── ChatViewModel.kt        screen state, model lifecycle, generation
 ├── engine/
 │   ├── LocalEngine.kt      the one loaded model, owned by the process
-│   └── ContextBudget.kt    how much history seeds a conversation
+│   ├── ContextBudget.kt    how much history seeds a conversation
+│   └── Thermal.kt          the phone's thermal state and thread count
 ├── data/
-│   ├── ModelStore.kt       model catalogue, settings, resumable downloads
+│   ├── ModelStore.kt       model catalogue, settings, resumable verified downloads
 │   ├── ResumePlan.kt       whether a download continues or starts again
+│   ├── DownloadRouting.kt  what a download event does to the screen
 │   ├── DownloadService.kt  foreground download and its event bus
-│   └── Conversations.kt    chats, atomic JSON persistence
+│   └── Conversations.kt    chats, filtering, tolerant atomic JSON persistence
 └── ui/
     ├── chat/               chat screen, status strip, bubbles, composer, Markdown
     ├── list/               conversation list and search
@@ -276,13 +284,14 @@ app/src/main/java/com/maik/app/
   turns are dropped first, and the chat says so.
 - **One download at a time.** Starting a second model's download while one runs tells
   you to wait or cancel.
-- **No UI tests.** The logic and the model pipeline are covered; the screens are not.
+- **Few UI tests.** The chat's message actions and composer are covered; most other
+  screens are checked by hand.
 - **First load is slow.** The runtime prepares a cached copy of the model once; later loads are quick.
 
 ## Requirements
 
 - Android **8.0 (API 26)** or newer, **ARM64**
-- ~3 GB free storage for the default model
+- ~3.3 GB free storage for the default model: the 2.6 GB file plus the runtime's prepared copy
 - Android Studio Ladybug or newer, JDK 17+, to build
 - No special hardware, no allowlist, no AICore
 

@@ -15,6 +15,7 @@ import java.io.File
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.decodeFromJsonElement
 
 @Immutable
 @Serializable
@@ -63,26 +64,37 @@ data class Conversation(
  * Writes go through [AtomicFile]: a crash mid-save leaves the previous file intact
  * instead of a half-written one that would wipe every chat on the next launch.
  */
+/** How chat history is written and read: tolerant of fields added or removed later. */
+val historyJson = Json { ignoreUnknownKeys = true; encodeDefaults = true; coerceInputValues = true }
+
 class ChatStore(context: Context) {
 
     private val file = File(context.filesDir, "conversations.json")
     private val atomic = AtomicFile(file)
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private val json = historyJson
 
     fun load(): List<Conversation> {
         // No early exists() check: after a crash mid-save only the backup may be on
         // disk, and reading through AtomicFile is what restores it.
-        return try {
-            json.decodeFromString<List<Conversation>>(String(atomic.readFully(), Charsets.UTF_8))
-                .sortedByDescending { it.updatedAt }
+        val text = try {
+            String(atomic.readFully(), Charsets.UTF_8)
         } catch (_: java.io.FileNotFoundException) {
-            emptyList()
+            return emptyList()
         } catch (_: Exception) {
-            // Set the unreadable file aside rather than overwrite it with an empty list
-            // on the next save: the chats may still be recoverable.
-            runCatching { file.renameTo(File(file.parentFile, "conversations.corrupt-${System.currentTimeMillis()}.json")) }
-            emptyList()
+            return setAside()
         }
+        val whole = runCatching { json.decodeFromString<List<Conversation>>(text) }.getOrNull()
+        if (whole != null) return whole.sortedByDescending { it.updatedAt }
+        // The file as a whole didn't read. Keep every conversation that still does, and a
+        // copy of the original in case the rest can be recovered by hand.
+        setAside()
+        return decodeConversations(json, text).orEmpty().sortedByDescending { it.updatedAt }
+    }
+
+    /** Keeps one copy of an unreadable history, replacing any older one. */
+    private fun setAside(): List<Conversation> {
+        runCatching { file.copyTo(File(file.parentFile, "conversations.corrupt.json"), overwrite = true) }
+        return emptyList()
     }
 
     fun save(conversations: List<Conversation>) {
@@ -96,6 +108,33 @@ class ChatStore(context: Context) {
         }
     }
 }
+
+/**
+ * The chats the list shows: pinned ones first, each group keeping its newest-first
+ * order, narrowed to those whose title or any message contains [query].
+ */
+fun filterConversations(all: List<Conversation>, query: String): List<Conversation> {
+    val q = query.trim()
+    val ordered = all.sortedByDescending { it.pinned }
+    if (q.isEmpty()) return ordered
+    return ordered.filter { convo ->
+        convo.title.contains(q, ignoreCase = true) ||
+            convo.messages.any { it.text.contains(q, ignoreCase = true) }
+    }
+}
+
+/**
+ * Reads a saved history, keeping every conversation that still parses even when others
+ * in the same file don't. Returns null when the text isn't a list at all.
+ */
+fun decodeConversations(json: Json, text: String): List<Conversation>? =
+    runCatching { json.decodeFromString<List<Conversation>>(text) }.getOrElse {
+        runCatching {
+            (json.parseToJsonElement(text) as? kotlinx.serialization.json.JsonArray)?.mapNotNull { element ->
+                runCatching { json.decodeFromJsonElement<Conversation>(element) }.getOrNull()
+            }
+        }.getOrNull()
+    }
 
 /** "now", "14m", "3h", "2d", "12 Mar" — compact enough for a list row. */
 fun relativeTime(at: Long, now: Long = System.currentTimeMillis()): String {

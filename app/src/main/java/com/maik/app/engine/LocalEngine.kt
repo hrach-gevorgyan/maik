@@ -39,8 +39,8 @@ object LocalEngine {
     val saves = Dispatchers.IO.limitedParallelism(1)
 
     private var engine: Engine? = null
-    private var loadedGpu: Boolean? = null
-    private var loadedCool: Boolean? = null
+    @Volatile private var loadedGpu: Boolean? = null
+    @Volatile private var loadedCool: Boolean? = null
 
     @Volatile
     var loadedId: String? = null
@@ -81,6 +81,10 @@ object LocalEngine {
         withContext(lifecycle) { runCatching { conversation.close() } }
 
     suspend fun close() = withContext(lifecycle) { closeNow() }
+
+    /** Whether the loaded engine was built with these settings. */
+    fun builtWith(preferGpu: Boolean, keepCool: Boolean): Boolean =
+        loadedGpu == preferGpu && loadedCool == keepCool
 
     /** Closes the engine only if [id] is what's loaded, so a newer model is left alone. */
     suspend fun unload(id: String) = withContext(lifecycle) { if (loadedId == id) closeNow() }

@@ -54,7 +54,7 @@ private val Paper = Color(0xFFF6F6F8)
 private val PaperSurface = Color(0xFFFFFFFF)
 private val PaperSurfaceAlt = Color(0xFFEDEDF1)
 private val Charcoal = Color(0xFF14141A)
-private val PaperLine = Color(0xFFDDDDE4)
+private val PaperLine = Color(0xFFC4C4CE)
 
 private val Acid = Color(0xFFD8FF3E)
 private val AcidDeep = Color(0xFF4C5F00)

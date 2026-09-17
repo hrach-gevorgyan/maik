@@ -25,6 +25,16 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.animation.animateContentSize
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
@@ -80,7 +90,12 @@ private val ENTRIES = listOf(
         else stringResource(R.string.settings_nothing_downloaded_yet)
     },
     Entry(SettingsPage.Instructions, { stringResource(R.string.settings_instructions) }) {
-        it.systemPrompt.replace('\n', ' ').take(46).trim() + "…"
+        val flat = it.systemPrompt.replace('\n', ' ').trim()
+        when {
+            it.systemPrompt == DEFAULT_SYSTEM_PROMPT -> stringResource(R.string.settings_instructions_default)
+            flat.length > 46 -> flat.take(46).trimEnd() + "…"
+            else -> flat
+        }
     },
     Entry(SettingsPage.Appearance, { stringResource(R.string.settings_appearance) }) {
         when (it.themeMode) {
@@ -97,7 +112,10 @@ private val ENTRIES = listOf(
             if (it.keepCool) append(stringResource(R.string.settings_cool))
         }
     },
-    Entry(SettingsPage.Storage, { stringResource(R.string.settings_storage) }) { stringResource(R.string.settings_mb_of_models, it.bytesOnDisk() / 1024 / 1024) },
+    Entry(SettingsPage.Storage, { stringResource(R.string.settings_storage) }) {
+        val bytes = remember(it.storageVersion) { it.bytesOnDisk() }
+        stringResource(R.string.settings_mb_of_models, bytes / 1024 / 1024)
+    },
     Entry(SettingsPage.About, { stringResource(R.string.settings_about) }) { stringResource(R.string.settings_version_licence_how_it_works) }
 )
 
@@ -122,11 +140,16 @@ private fun SettingsMenu(vm: ChatViewModel) {
 private fun MenuRow(title: String, detail: String, onClick: () -> Unit) {
     val scheme = MaterialTheme.colorScheme
     val source = rememberPressSource()
+    val buzz = tap()
     Row(
         Modifier
             .fillMaxWidth()
             .pressable(source)
-            .clickable(interactionSource = source, indication = null, onClick = onClick)
+            .clickable(interactionSource = source, indication = null, role = Role.Button) {
+                buzz()
+                onClick()
+            }
+            .semantics(mergeDescendants = true) {}
             .padding(horizontal = 20.dp, vertical = 18.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -158,7 +181,7 @@ private fun ModelsPage(vm: ChatViewModel) {
     var confirmDelete by remember { mutableStateOf<ModelSpec?>(null) }
 
     Column(Modifier.fillMaxSize()) {
-        TopBar(title = stringResource(R.string.settings_models), onBack = { vm.openSettingsPage(SettingsPage.Root) })
+        TopBar(title = stringResource(R.string.settings_models), onBack = vm::leaveModels)
         LazyColumn(contentPadding = PaddingValues(20.dp)) {
             item {
                 Text(
@@ -224,16 +247,19 @@ private fun ModelRow(
     val downloading = running && downloadingId == model.id
     val inUse = installed && vm.spec.id == model.id
 
+    val borderColor by androidx.compose.animation.animateColorAsState(
+        if (inUse) scheme.primary else scheme.outline, tween(Motion.NORMAL), label = "modelBorder"
+    )
+    val borderWidth by androidx.compose.animation.core.animateDpAsState(
+        if (inUse) 2.dp else 1.dp, tween(Motion.NORMAL), label = "modelBorderWidth"
+    )
     Column(
         Modifier
             .fillMaxWidth()
+            .animateContentSize(tween(Motion.NORMAL))
             .clip(RoundedCornerShape(18.dp))
             .background(scheme.surface)
-            .border(
-                width = if (inUse) 2.dp else 1.dp,
-                color = if (inUse) scheme.primary else scheme.outline,
-                shape = RoundedCornerShape(18.dp)
-            )
+            .border(width = borderWidth, color = borderColor, shape = RoundedCornerShape(18.dp))
             .padding(18.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -294,7 +320,16 @@ private fun ModelRow(
                 !inUse -> RowAction(stringResource(R.string.settings_use_for_new_chats)) { vm.selectModel(model) }
             }
             Spacer(Modifier.weight(1f))
-            if (installed && !downloading) RowAction(stringResource(R.string.settings_delete_2), scheme.error, onDelete)
+            if (installed && !downloading && !vm.isLoadingModel) {
+                RowAction(stringResource(R.string.settings_delete_2), scheme.error, onDelete)
+            }
+        }
+        if (installed && vm.isLoadingModel) {
+            Text(
+                stringResource(R.string.settings_wait_for_load),
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
+            )
         }
     }
 }
@@ -305,15 +340,19 @@ private fun RowAction(
     color: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primary,
     onClick: () -> Unit
 ) {
+    val buzz = tap()
     Text(
         label,
         style = MaterialTheme.typography.labelLarge,
         color = color,
         modifier = Modifier
-            .heightIn(min = 48.dp)
+            .minimumInteractiveComponentSize()
             .clip(RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 14.dp)
+            .clickable(role = Role.Button) {
+                buzz()
+                onClick()
+            }
+            .padding(horizontal = 12.dp, vertical = 14.dp)
     )
 }
 
@@ -334,7 +373,12 @@ private fun Tag(text: String) {
 private fun AppearancePage(vm: ChatViewModel) {
     Column(Modifier.fillMaxSize()) {
         TopBar(title = stringResource(R.string.settings_appearance), onBack = { vm.openSettingsPage(SettingsPage.Root) })
-        Column(Modifier.padding(20.dp)) {
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp)
+                .selectableGroup()
+        ) {
             Text(
                 stringResource(R.string.settings_dark_is_the_design_maik),
                 style = MaterialTheme.typography.bodyMedium,
@@ -374,7 +418,7 @@ private fun ChoiceRow(label: String, selected: Boolean, onClick: () -> Unit) {
                 color = if (selected) scheme.primary else scheme.outline,
                 shape = RoundedCornerShape(16.dp)
             )
-            .clickable(interactionSource = source, indication = null) {
+            .selectable(selected = selected, interactionSource = source, indication = null, role = Role.RadioButton) {
                 buzz()
                 onClick()
             }
@@ -399,45 +443,58 @@ private fun ChoiceRow(label: String, selected: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun InstructionsPage(vm: ChatViewModel) {
-    var draft by remember { mutableStateOf(vm.systemPrompt) }
+    var draft by rememberSaveable { mutableStateOf(vm.systemPrompt) }
     val scheme = MaterialTheme.colorScheme
+    val context = LocalContext.current
+
+    // The arrow, the system back gesture and Save all keep what was typed. Unchanged
+    // instructions aren't re-saved, because saving restarts the conversation.
+    fun leave() {
+        if (draft.trim() != vm.systemPrompt) {
+            vm.updateSystemPrompt(draft)
+            android.widget.Toast.makeText(
+                context, context.getString(R.string.settings_instructions_saved), android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
+        vm.openSettingsPage(SettingsPage.Root)
+    }
+    androidx.activity.compose.BackHandler { leave() }
 
     Column(Modifier.fillMaxSize()) {
-        TopBar(title = stringResource(R.string.settings_instructions), onBack = {
-            vm.updateSystemPrompt(draft)
-            vm.openSettingsPage(SettingsPage.Root)
-        })
-        Column(Modifier.padding(20.dp)) {
+        TopBar(title = stringResource(R.string.settings_instructions), onBack = ::leave)
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .padding(20.dp)
+        ) {
             Text(
                 stringResource(R.string.settings_a_standing_note_handed_to),
                 style = MaterialTheme.typography.bodyMedium,
                 color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
             )
             Spacer(Modifier.height(18.dp))
-            EditorField(draft) { draft = it }
-            Spacer(Modifier.height(14.dp))
-            Row {
+            EditorField(
+                draft,
+                label = stringResource(R.string.settings_instructions),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Sentences
+                )
+            ) { draft = it }
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    stringResource(R.string.settings_characters, draft.length),
+                    pluralStringResource(R.plurals.settings_character_count, draft.length, draft.length),
                     style = MaterialTheme.typography.labelSmall,
                     color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                 )
                 Spacer(Modifier.weight(1f))
-                Text(
-                    stringResource(R.string.settings_reset),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = scheme.primary,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable { draft = DEFAULT_SYSTEM_PROMPT }
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                )
+                if (draft != DEFAULT_SYSTEM_PROMPT) {
+                    RowAction(stringResource(R.string.settings_reset)) { draft = DEFAULT_SYSTEM_PROMPT }
+                }
             }
-            Spacer(Modifier.height(20.dp))
-            BigButton(stringResource(R.string.settings_save)) {
-                vm.updateSystemPrompt(draft)
-                vm.openSettingsPage(SettingsPage.Root)
-            }
+            Spacer(Modifier.height(14.dp))
+            BigButton(stringResource(R.string.settings_save)) { leave() }
         }
     }
 }
@@ -466,7 +523,12 @@ private fun StoragePage(vm: ChatViewModel) {
             }
             item {
                 Spacer(Modifier.height(24.dp))
-                OutlineButton(stringResource(R.string.settings_delete_all_conversations)) { confirmWipe = true }
+                if (vm.conversations.isNotEmpty()) {
+                    OutlineButton(
+                        stringResource(R.string.settings_delete_all_conversations),
+                        color = scheme.error
+                    ) { confirmWipe = true }
+                }
             }
         }
     }
@@ -475,18 +537,12 @@ private fun StoragePage(vm: ChatViewModel) {
         AlertDialog(
             onDismissRequest = { confirmWipe = false },
             containerColor = scheme.surfaceVariant,
-            title = {
-                Text(
-                    stringResource(R.string.settings_delete_everything),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = scheme.onSurface
-                )
-            },
+            title = { DialogTitle(stringResource(R.string.settings_delete_everything)) },
             text = {
                 Text(
-                    stringResource(R.string.settings_all_conversations_permanently_there_is, vm.conversations.size),
+                    pluralStringResource(R.plurals.settings_delete_all_detail, vm.conversations.size, vm.conversations.size),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = scheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    color = scheme.onSurfaceVariant
                 )
             },
             confirmButton = {
@@ -508,9 +564,13 @@ private fun StoragePage(vm: ChatViewModel) {
 private fun BehaviourPage(vm: ChatViewModel) {
     Column(Modifier.fillMaxSize()) {
         TopBar(title = stringResource(R.string.settings_behaviour), onBack = { vm.openSettingsPage(SettingsPage.Root) })
-        Column(Modifier.padding(20.dp)) {
+        Column(
+            Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp)
+        ) {
             ToggleRow(
-                label = "Vibration",
+                label = stringResource(R.string.settings_vibration),
                 detail = stringResource(R.string.settings_a_short_tap_when_you),
                 checked = vm.hapticsEnabled,
                 onChange = vm::updateHaptics
@@ -635,7 +695,8 @@ private fun SectionTitle(text: String) {
     Text(
         text,
         style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.onBackground
+        color = MaterialTheme.colorScheme.onBackground,
+        modifier = Modifier.semantics { heading() }
     )
 }
 
@@ -664,12 +725,16 @@ private fun ToggleRow(
     onChange: (Boolean) -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
+    val buzz = tap()
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
             .border(1.dp, scheme.outline, RoundedCornerShape(18.dp))
-            .clickable { onChange(!checked) }
+            .toggleable(value = checked, role = Role.Switch) {
+                buzz()
+                onChange(it)
+            }
             .padding(18.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -685,7 +750,8 @@ private fun ToggleRow(
         Spacer(Modifier.width(14.dp))
         Switch(
             checked = checked,
-            onCheckedChange = onChange,
+            // The row handles the tap, so the switch isn't a second, separate stop.
+            onCheckedChange = null,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = scheme.onPrimary,
                 checkedTrackColor = scheme.primary,

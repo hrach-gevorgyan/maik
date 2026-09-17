@@ -40,7 +40,7 @@ import kotlinx.coroutines.withContext
 /** What the engine is doing, independent of which screen you're looking at. */
 sealed interface Stage {
     data object NeedsModel : Stage
-    data class Downloading(val bytes: Long, val total: Long) : Stage {
+    data class Downloading(val bytes: Long, val total: Long, val verifying: Boolean = false) : Stage {
         val fraction: Float get() = if (total > 0) bytes.toFloat() / total else 0f
     }
 
@@ -73,7 +73,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     val conversations = mutableStateListOf<Conversation>()
 
     /** The model new chats use. */
-    val spec: ModelSpec get() = store.spec
+    val spec: ModelSpec get() = preferred()
 
     /** The model the engine is loading or has loaded — what the setup screen offers. */
     var target by mutableStateOf(Models.DEFAULT)
@@ -113,9 +113,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     var phoneIsWarm by mutableStateOf(false)
         private set
 
-    /** True while maik is deliberately decoding slower to keep the phone cool. */
-    var easingOff by mutableStateOf(false)
-        private set
 
     /** Set when a reply was cut short to let the phone cool down. */
     var stoppedForHeat by mutableStateOf(false)
@@ -157,6 +154,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /** The model this screen asked to load. */
     private var loadingId: String? = null
+        set(value) {
+            field = value
+            isLoadingModel = value != null
+        }
+
+    /** Whether any model is loading, for screens that must not act on models meanwhile. */
+    var isLoadingModel by mutableStateOf(false)
+        private set
 
     /** Bumped per load request, so only the newest one sets the stage. */
     private var loadToken = 0
@@ -165,7 +170,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private var returnTo = Screen.List
 
     /** The whole reply so far, including tokens not yet published to [streaming]. */
-    private val liveReply = StringBuffer()
+    private var liveReply = StringBuffer()
+
+    /** The chat the running reply belongs to, which is not always the one on screen. */
+    private var generatingId: String? = null
 
     /** Set by Stop: a cancelled runtime conversation doesn't answer again, so rebuild it. */
     private var sessionStale = false
@@ -190,16 +198,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     val visibleConversations: List<Conversation>
         get() {
             val q = query.trim()
-            // Pinned first; within each group the list keeps its most-recent-first order.
-            if (q.isEmpty()) return conversations.sortedByDescending { it.pinned }
-            return conversations.sortedByDescending { it.pinned }.filter { convo ->
-                convo.title.contains(q, ignoreCase = true) ||
-                    convo.messages.any { it.text.contains(q, ignoreCase = true) }
-            }
+            return filterConversations(conversations, q)
         }
 
+
+    /** False until chat history has been read from disk; the splash screen waits for it. */
+    var chatsLoaded by mutableStateOf(false)
+        private set
+
     init {
-        conversations.addAll(chats.load())
         systemPrompt = store.systemPrompt
         themeMode = store.themeMode
         hapticsEnabled = store.haptics
@@ -239,11 +246,23 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 stage = Stage.NeedsModel
             }
         }
-        // First launch, with nothing downloaded yet: start where the app can be set up.
-        if (stage is Stage.NeedsModel && store.installed().isEmpty() && conversations.isEmpty()) {
-            screen = Screen.Setup
-        }
         watchDownloads()
+
+        // History is parsed off the main thread; a long one would otherwise stall launch.
+        viewModelScope.launch {
+            val saved = withContext(Dispatchers.IO) { chats.load() }
+            // Anything started in the moment before loading finished stays on top.
+            val startedMeanwhile = conversations.map { it.id }.toSet()
+            conversations.addAll(saved.filterNot { it.id in startedMeanwhile })
+            chatsLoaded = true
+            if (startedMeanwhile.isNotEmpty()) persist()
+            // First launch, with nothing downloaded yet: start where the app can be set up.
+            if (screen == Screen.List && stage is Stage.NeedsModel &&
+                store.installed().isEmpty() && conversations.isEmpty()
+            ) {
+                screen = Screen.Setup
+            }
+        }
     }
 
     /* ---------- navigation ---------- */
@@ -289,6 +308,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun openSettings() {
+        modelsOpenedFromSetup = false
         rememberReturn()
         settingsPage = SettingsPage.Root
         screen = Screen.Settings
@@ -296,9 +316,23 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Straight to the model list, for "choose a different model" links. */
     fun openModels() {
+        modelsOpenedFromSetup = screen == Screen.Setup
         rememberReturn()
         settingsPage = SettingsPage.Models
         screen = Screen.Settings
+    }
+
+    /** Models reached from the download screen goes back there, not into Settings. */
+    private var modelsOpenedFromSetup = false
+
+    /** Back out of the Models page, to wherever it was opened from. */
+    fun leaveModels() {
+        if (modelsOpenedFromSetup) {
+            modelsOpenedFromSetup = false
+            screen = Screen.Setup
+        } else {
+            settingsPage = SettingsPage.Root
+        }
     }
 
     fun openSettingsPage(page: SettingsPage) {
@@ -309,6 +343,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun back() {
         when {
             pendingSwitch != null -> pendingSwitch = null
+            screen == Screen.Settings && settingsPage == SettingsPage.Models -> leaveModels()
+
             screen == Screen.Settings && settingsPage != SettingsPage.Root ->
                 settingsPage = SettingsPage.Root
 
@@ -320,6 +356,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun open(id: String) {
+        stoppedForHeat = false
         if (busy) stop()
         val convo = conversations.firstOrNull { it.id == id } ?: return
         currentId = id
@@ -358,6 +395,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun newChat() {
+        stoppedForHeat = false
         if (busy) stop()
         val model = LocalEngine.loadedId?.let { id -> Models.ALL.firstOrNull { it.id == id } } ?: preferred()
         val fresh = Conversation(id = UUID.randomUUID().toString(), title = text(R.string.chat_new_chat_title), modelId = model.id)
@@ -387,9 +425,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Removes one message from the open chat; the next turn rebuilds the context. */
-    fun deleteMessage(index: Int) {
+    fun deleteMessage(index: Int, at: Long) {
         val convo = current ?: return
-        if (busy || index !in convo.messages.indices) return
+        if (busy || convo.messages.getOrNull(index)?.at != at) return
         replace(convo.id) { it.copy(messages = it.messages.filterIndexed { i, _ -> i != index }) }
         persist()
         viewModelScope.launch { endSession() }
@@ -399,10 +437,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
      * Replaces one of your messages and asks again from there. Everything after it
      * goes, because it was an answer to the old wording.
      */
-    fun editAndResend(index: Int, text: String) {
+    fun editAndResend(index: Int, at: Long, text: String) {
         val convo = current ?: return
         val clean = text.trim()
-        if (busy || clean.isEmpty() || index !in convo.messages.indices) return
+        if (busy || clean.isEmpty() || convo.messages.getOrNull(index)?.at != at) return
         if (!convo.messages[index].fromUser) return
         val kept = convo.messages.take(index) + convo.messages[index].copy(text = clean)
         replace(convo.id) {
@@ -447,8 +485,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun updateKeepCool(enabled: Boolean) {
         store.setKeepCool(enabled)
         keepCool = enabled
-        // The thread count is fixed when the engine is built, so it has to be rebuilt.
-        if (store.isReady(target) && (stage is Stage.Ready || stage is Stage.Broken)) {
+        // Thread count is fixed when the engine is built and the reply cap when the
+        // conversation is, so both are rebuilt.
+        if (store.isReady(target) && (stage is Stage.Ready || stage is Stage.Broken || stage is Stage.Loading)) {
+            viewModelScope.launch { endSession() }
             loadEngine(target, force = true)
         }
     }
@@ -500,7 +540,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private fun ensureEngineFor(wanted: ModelSpec) {
         target = wanted
         when {
-            LocalEngine.loadedId == wanted.id && loadingId == null -> {
+            LocalEngine.loadedId == wanted.id && loadingId == null &&
+                LocalEngine.builtWith(useGpu, keepCool) -> {
                 backend = LocalEngine.backend
                 stage = Stage.Ready
             }
@@ -568,7 +609,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             DownloadBus.progress.collect { progress ->
                 if (progress != null && DownloadBus.running.value && DownloadBus.modelId.value == target.id) {
-                    stage = Stage.Downloading(progress.bytes, progress.total)
+                    stage = Stage.Downloading(progress.bytes, progress.total, progress.verifying)
                 }
             }
         }
@@ -624,6 +665,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             }
             withContext(Dispatchers.IO) { store.delete(s) }
             storageVersion++
+            // Deleting gigabytes deserves a word back, not silence.
+            android.widget.Toast.makeText(
+                getApplication(), text(R.string.settings_model_deleted, s.label, s.approxMb), android.widget.Toast.LENGTH_SHORT
+            ).show()
             if (s.id == target.id) stage = Stage.NeedsModel
         }
     }
@@ -720,17 +765,26 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             finish(conversationId, text(R.string.model_not_loaded_yet, model.label), isError = true)
             return
         }
+        // Status only changes on a transition, so a phone that is already throttling
+        // would never trigger the stop. Check before adding more heat.
+        if (keepCool && Thermal.isHot()) {
+            finish(conversationId, text(R.string.chat_too_hot_to_start), isError = true)
+            return
+        }
 
         busy = true
         streaming = ""
         stoppedForHeat = false
+        generatingId = conversationId
         val turn = ++generation
         val prompt = convo.messages.last().text
         val previous = job
 
-        liveReply.setLength(0)
+        // A fresh buffer per turn: a stopped reply still winding down can only ever
+        // append to its own.
+        val reply = StringBuffer()
+        liveReply = reply
         job = viewModelScope.launch {
-            val reply = liveReply
             val started = SystemClock.elapsedRealtime()
             var firstTokenAt = 0L
             var chunks = 0
@@ -749,7 +803,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 // Not cancellable: the native call must wind down before anything can
                 // close the conversation. stop() ends it early through cancelProcess().
                 withContext(Dispatchers.Default + NonCancellable) {
-                    var workedSince = SystemClock.elapsedRealtime()
                     conversation.sendMessageAsync(prompt).collect { chunk ->
                         val piece = textOf(chunk)
                         if (piece.isEmpty()) return@collect
@@ -758,19 +811,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                         chunks++
                         if (turn != generation) return@collect
                         reply.append(piece)
-
-                        // Hand the cores back for a moment when the phone is close to
-                        // throttling. Losing a quarter of the speed here avoids losing
-                        // two thirds of it to the hardware a minute later.
-                        val duty = Thermal.dutyCycle(keepCool)
-                        withContext(Dispatchers.Main) { easingOff = duty < 1f }
-                        if (duty < 1f && now - workedSince >= PACE_EVERY_MS) {
-                            val worked = now - workedSince
-                            delay(((worked / duty) - worked).toLong().coerceAtMost(MAX_PAUSE_MS))
-                            workedSince = SystemClock.elapsedRealtime()
-                        } else if (duty >= 1f) {
-                            workedSince = now
-                        }
                         // Publishing per token re-lays-out the whole reply dozens of
                         // times a second. A few times a second reads the same.
                         if (now - lastPublish >= PUBLISH_EVERY_MS) {
@@ -808,8 +848,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun stop() {
         if (!busy) return
-        val conversationId = currentId ?: return
+        val conversationId = generatingId ?: currentId ?: return
         val partial = liveReply.toString().trim()
+        generatingId = null
         generation++
         runCatching { session?.cancelProcess() }
         sessionStale = true
@@ -842,7 +883,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val recent = ContextBudget.recentTurns(history, model.contextTokens, systemPrompt)
         dropped = history.size - recent.size
 
-        val fresh = LocalEngine.conversation(
+        val fresh = withContext(NonCancellable) {
+            LocalEngine.conversation(
             ConversationConfig(
                 systemInstruction = Contents.of(systemPrompt),
                 initialMessages = recent.map {
@@ -861,6 +903,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 thinkingConfig = ThinkingConfig(false)
             )
         )
+        }
         session = fresh
         sessionOwner = convo.id
         return fresh
@@ -903,7 +946,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private fun finish(conversationId: String, text: String, isError: Boolean, stats: String? = null) {
         streaming = ""
         busy = false
-        easingOff = false
+        generatingId = null
         replace(conversationId) {
             it.copy(
                 messages = it.messages + Message(text, fromUser = false, isError = isError, stats = stats),
@@ -931,12 +974,25 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Saves off the main thread, in order, and outlives this screen. */
     private fun persist() {
+        // Saving before history has loaded would replace it with whatever is in memory.
+        if (!chatsLoaded) return
         val snapshot = conversations.toList()
         LocalEngine.scope.launch(LocalEngine.saves) { chats.save(snapshot) }
     }
 
     override fun onCleared() {
         super.onCleared()
+        // Whatever was written so far is kept, exactly as if Stop had been tapped.
+        if (busy) {
+            val partial = liveReply.toString().trim()
+            val owner = generatingId
+            if (partial.isNotEmpty() && owner != null) {
+                replace(owner) {
+                    it.copy(messages = it.messages + Message(partial, fromUser = false), updatedAt = System.currentTimeMillis())
+                }
+                persist()
+            }
+        }
         // The engine stays loaded for the next screen. Only the conversation goes.
         val old = session ?: return
         session = null
@@ -957,11 +1013,5 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         private const val SHORT_REPLY_TOKENS = 384
 
         private const val LONG_REPLY_TOKENS = 768
-
-        /** How long to decode between cooling pauses. Short enough to stay responsive. */
-        private const val PACE_EVERY_MS = 250L
-
-        /** No single pause long enough to look like maik has stopped. */
-        private const val MAX_PAUSE_MS = 220L
     }
 }

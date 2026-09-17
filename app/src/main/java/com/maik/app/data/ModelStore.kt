@@ -18,6 +18,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -108,7 +110,8 @@ const val DEFAULT_SYSTEM_PROMPT =
         "Answer clearly and concisely."
 
 sealed interface Download {
-    data class Progress(val bytes: Long, val total: Long) : Download
+    /** [verifying] is true while the finished file is checked, which takes a while. */
+    data class Progress(val bytes: Long, val total: Long, val verifying: Boolean = false) : Download
     data class Done(val file: File, val modelId: String) : Download
     data class Failed(val modelId: String, val reason: String, val cancelled: Boolean = false) : Download
 }
@@ -242,7 +245,14 @@ class ModelStore(context: Context) {
         val target = fileFor(s)
         val partial = partFor(s)
         fun failed(reason: String) = Download.Failed(s.id, reason)
+        val stamp = File(dir, "${s.fileName}.part.sha256")
         try {
+            // The partial belongs to whatever file the catalogue pointed at when it was
+            // started. If the app has since pinned a different file, start clean.
+            if (partial.exists() && stamp.takeIf { it.exists() }?.readText()?.trim() != s.sha256) {
+                partial.delete()
+            }
+            stamp.writeText(s.sha256)
             // At most one restart: a partial the server can't continue is thrown away once.
             for (attempt in 0..1) {
                 val have = partialBytes(s)
@@ -301,6 +311,8 @@ class ModelStore(context: Context) {
             }
 
             // A pinned URL plus the checksum means a resumed file can't be two files spliced.
+            // Hashing gigabytes takes a while; say so rather than sit at 100%.
+            emit(Download.Progress(partial.length(), partial.length(), verifying = true))
             if (!sha256Of(partial).equals(s.sha256, ignoreCase = true)) {
                 partial.delete()
                 emit(failed(text(R.string.download_corrupted)))
@@ -312,11 +324,13 @@ class ModelStore(context: Context) {
                 return@flow
             }
 
+            currentCoroutineContext().ensureActive()
             if (target.exists()) target.delete()
             if (!partial.renameTo(target)) {
                 emit(failed(text(R.string.download_could_not_save)))
                 return@flow
             }
+            stamp.delete()
             emit(Download.Done(target, s.id))
         } catch (e: CancellationException) {
             // Cancelled on purpose: keep the partial file so the next attempt resumes.
@@ -329,6 +343,7 @@ class ModelStore(context: Context) {
     fun delete(s: ModelSpec = spec) {
         fileFor(s).delete()
         partFor(s).delete()
+        File(dir, "${s.fileName}.part.sha256").delete()
         File(cacheRoot, s.id).deleteRecursively()
     }
 
@@ -339,7 +354,12 @@ class ModelStore(context: Context) {
     private fun humanise(e: Exception): String = when (e) {
         is java.net.UnknownHostException -> text(R.string.download_no_connection)
         is java.net.SocketTimeoutException -> text(R.string.download_timed_out)
-        is java.io.IOException -> text(R.string.download_dropped)
+        is java.io.IOException ->
+            if (e.message?.contains("ENOSPC") == true || e.message?.contains("No space", ignoreCase = true) == true) {
+                text(R.string.download_disk_full)
+            } else {
+                text(R.string.download_dropped)
+            }
         else -> e.message ?: e::class.java.simpleName
     }
 
@@ -350,11 +370,13 @@ class ModelStore(context: Context) {
         /** Every LiteRT-LM bundle opens with these eight ASCII bytes. */
         const val MAGIC = "LITERTLM"
 
-        fun sha256Of(file: File): String {
+        suspend fun sha256Of(file: File): String {
             val digest = java.security.MessageDigest.getInstance("SHA-256")
             file.inputStream().use { input ->
                 val buffer = ByteArray(1 shl 20)
                 while (true) {
+                    // Gigabytes of hashing must stop the moment the download is cancelled.
+                    currentCoroutineContext().ensureActive()
                     val read = input.read(buffer)
                     if (read < 0) break
                     digest.update(buffer, 0, read)

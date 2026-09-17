@@ -16,7 +16,7 @@ import java.net.HttpURLConnection
  * Pure so it can be tested: getting it wrong either appends a whole second copy of a
  * 2.6 GB file onto a partial one, or throws away progress the server would have kept.
  */
-data class ResumePlan(val resuming: Boolean, val start: Long, val total: Long) {
+object ResumePlan {
 
     /** What to do with the response to a request for `bytes=have-`. */
     sealed interface Outcome {
@@ -29,7 +29,6 @@ data class ResumePlan(val resuming: Boolean, val start: Long, val total: Long) {
         data object RestartFromZero : Outcome
     }
 
-    companion object {
         private val CONTENT_RANGE = Regex("""^bytes\s+(\d+)-\d+/(\d+|\*)$""")
 
         /** The first byte of a `Content-Range: bytes a-b/N` header, or null. */
@@ -57,18 +56,4 @@ data class ResumePlan(val resuming: Boolean, val start: Long, val total: Long) {
             // A 200 ignores the range and sends the whole file.
             return Outcome.Copy(0, contentLength.takeIf { it > 0 } ?: expected, resuming = false)
         }
-
-        /**
-         * @param have bytes already in the partial file
-         * @param responseCode the server's reply to a request that asked for `bytes=have-`
-         * @param contentLength what the server says this response carries, or <= 0 if unknown
-         * @param expectedTotal the model's known size, used when the server doesn't say
-         */
-        fun of(have: Long, responseCode: Int, contentLength: Long, expectedTotal: Long): ResumePlan {
-            val resuming = have > 0 && responseCode == HttpURLConnection.HTTP_PARTIAL
-            val start = if (resuming) have else 0L
-            val remaining = contentLength.takeIf { it > 0 } ?: (expectedTotal - start)
-            return ResumePlan(resuming, start, start + remaining)
-        }
-    }
 }

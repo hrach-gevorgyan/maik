@@ -34,7 +34,7 @@ class StringResourcesTest {
     @Test
     fun `every percent sign is a numbered argument or an escaped percent`() {
         val bad = strings.filter { (_, text) ->
-            text.contains('%') && !text.replace(Regex("%%|%[0-9]+[$][sd]"), "").let { !it.contains('%') }
+            text.contains('%') && !text.replace(Regex("%%|%[0-9]+[$][-#+ 0,(]*[0-9]*([.][0-9]+)?[sdfx]"), "").let { !it.contains('%') }
         }
         assertTrue("Unformattable strings: $bad", bad.isEmpty())
     }

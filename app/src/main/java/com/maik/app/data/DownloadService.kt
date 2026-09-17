@@ -58,12 +58,13 @@ class DownloadService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob())
     private var job: Job? = null
+    private var lastNotified = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_CANCEL) {
-            stopEverything()
+            if (job?.isActive == true) stopEverything() else stopSelf(startId)
             return START_NOT_STICKY
         }
         val requested = intent?.getStringExtra(EXTRA_MODEL_ID)
@@ -83,7 +84,13 @@ class DownloadService : Service() {
         val spec = Models.byId(requested)
 
         createChannel()
-        startForeground(NOTIFICATION_ID, buildNotification(spec.label, 0, 0, indeterminate = true))
+        try {
+            startForeground(NOTIFICATION_ID, buildNotification(spec.label, 0, 0, indeterminate = true))
+        } catch (e: IllegalStateException) {
+            DownloadBus.events.tryEmit(Download.Failed(spec.id, getString(R.string.download_not_allowed_now)))
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
         DownloadBus.modelId.value = spec.id
         DownloadBus.running.value = true
 
@@ -92,7 +99,14 @@ class DownloadService : Service() {
                 when (event) {
                     is Download.Progress -> {
                         DownloadBus.progress.value = event
-                        notify(buildNotification(spec.label, event.bytes, event.total, false))
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (event.verifying || now - lastNotified >= NOTIFY_EVERY_MS) {
+                            lastNotified = now
+                            notify(
+                                if (event.verifying) buildNotification(spec.label, 0, 0, indeterminate = true, verifying = true)
+                                else buildNotification(spec.label, event.bytes, event.total, false)
+                            )
+                        }
                     }
 
                     is Download.Done, is Download.Failed -> {
@@ -132,6 +146,7 @@ class DownloadService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         DownloadBus.running.value = false
+        DownloadBus.modelId.value = null
         scope.cancel()
     }
 
@@ -158,7 +173,8 @@ class DownloadService : Service() {
         label: String,
         bytes: Long,
         total: Long,
-        indeterminate: Boolean
+        indeterminate: Boolean,
+        verifying: Boolean = false
     ): Notification {
         val open = PendingIntent.getActivity(
             this,
@@ -173,7 +189,9 @@ class DownloadService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val mb = if (total > 0) {
+        val mb = if (verifying) {
+            getString(R.string.download_verifying)
+        } else if (total > 0) {
             getString(R.string.download_notification_progress, bytes / 1024 / 1024, total / 1024 / 1024)
         } else {
             getString(R.string.download_notification_starting)
@@ -198,6 +216,7 @@ class DownloadService : Service() {
         private const val NOTIFICATION_ID = 42
         const val ACTION_CANCEL = "com.maik.app.CANCEL_DOWNLOAD"
         private const val EXTRA_MODEL_ID = "model_id"
+        private const val NOTIFY_EVERY_MS = 1_000L
 
         fun start(context: Context, modelId: String) {
             val intent = Intent(context, DownloadService::class.java)

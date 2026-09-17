@@ -7,6 +7,63 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 2.5.0 — 17 September 2026
+
+**A full second pass, over everything that wasn't the chat screen.**
+
+### Fixed
+
+- **Stop could act on the wrong chat.** Leaving a chat while its reply was still coming,
+  then opening another, meant Stop did nothing — or saved the half-written reply into the
+  chat you were looking at. Stop now always ends the reply in the chat it belongs to.
+- **A stopped reply could leak its last few words into the next one**, if you sent again
+  straight away.
+- **Leaving the app mid-reply kept nothing.** What was already written is now saved, just
+  as if you had tapped Stop.
+- **Cancelling a download while it was being checked could still install the model.**
+- **Stopping right as a reply began** could leave the model's working memory allocated.
+- **Editing Instructions and swiping back threw the edit away.** Back now saves, like the
+  arrow does, and the text survives rotating the phone.
+- **Search could get stuck** showing "nothing matches" with no way to clear it, after
+  deleting down to a few chats.
+- **Deleting a message** from its menu could hit a different message if the chat changed
+  while the menu was open.
+- **Settings said Gemma was in use** when new chats were really using the model you had.
+- **A full disk** reported "the connection dropped".
+- **The thermal slow-down didn't cool anything** — it only delayed showing words while the
+  model kept working at full speed — so it's gone. maik now refuses to start a reply while
+  the phone is already overheating, and still stops one that gets there.
+
+### Better
+
+- **Checking a download is visible:** "Checking the download" instead of sitting at 100%
+  for the half-minute it takes to verify 2.6 GB.
+- **History loads off the main thread**, with the launch screen held until it's ready, so a
+  long history no longer stalls opening the app.
+- **One damaged conversation no longer loses them all:** every chat that still reads is
+  kept, and a copy of the original is set aside.
+- **The download screen animates between steps** and sits centred on tall screens.
+- **Settings pages scroll** at large font sizes and in landscape; toggles, theme choices
+  and menu rows are announced properly to screen readers; page titles are headings.
+- **Chats can be pinned, renamed and deleted without long-press or swipe**, from
+  TalkBack's actions menu.
+- **Rename** opens with the title selected, Enter saves, and a blank title can't be saved.
+- **Search** has a clear button and its keyboard key closes it.
+- **Deleting a model** confirms how much space it freed, and isn't offered while another
+  model is loading (instead of silently doing nothing).
+- Button outlines in the light theme are visible; delete-all looks destructive and hides
+  when there is nothing to delete.
+
+### Under the hood
+
+- 78 unit tests, including checksum test vectors, history files from older and newer
+  versions, one broken chat among good ones, and list filtering.
+- Release builds keep Kotlin metadata for the runtime; CI lints the release build too;
+  manual releases are tagged on the commit that was built.
+- README brought back in line with the app.
+
+---
+
 ## 2.4.0 — 17 September 2026
 
 **Built like a shipped app.**

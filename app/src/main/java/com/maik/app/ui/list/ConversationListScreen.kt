@@ -27,6 +27,20 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -39,10 +53,6 @@ import com.maik.app.ui.components.*
 import com.maik.app.ui.settings.*
 import com.maik.app.ui.setup.*
 import com.maik.app.ui.theme.*
-
-@OptIn(ExperimentalFoundationApi::class)
-private fun Modifier.combinedClick(onClick: () -> Unit, onLongClick: () -> Unit) =
-    this.combinedClickable(onClick = onClick, onLongClick = onLongClick)
 
 /* ================= conversation list ================= */
 
@@ -70,7 +80,7 @@ fun ConversationListScreen(vm: ChatViewModel) {
         HorizontalLine()
 
         // Search only earns its space once there is enough to search through.
-        if (vm.conversations.size >= 5) {
+        if (vm.conversations.size >= 5 || vm.query.isNotBlank()) {
             Box(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                 SearchField(vm.query) { vm.query = it }
             }
@@ -109,7 +119,10 @@ fun ConversationListScreen(vm: ChatViewModel) {
                                     onLongPress = {
                                         buzz()
                                         menuFor = convo
-                                    }
+                                    },
+                                    onPin = { vm.togglePin(convo.id) },
+                                    onRename = { renaming = convo },
+                                    onDelete = { confirmDelete = convo }
                                 )
                             }
                             HorizontalLine()
@@ -176,17 +189,32 @@ fun ConversationListScreen(vm: ChatViewModel) {
     }
 
     renaming?.let { convo ->
-        var draft by remember(convo.id) { mutableStateOf(convo.title) }
+        var draft by rememberSaveable(convo.id, stateSaver = TextFieldValue.Saver) {
+            mutableStateOf(TextFieldValue(convo.title, selection = TextRange(0, convo.title.length)))
+        }
+        val focus = remember { FocusRequester() }
+        LaunchedEffect(convo.id) { focus.requestFocus() }
+        fun save() {
+            if (draft.text.isBlank()) return
+            vm.rename(convo.id, draft.text)
+            renaming = null
+        }
         AlertDialog(
             onDismissRequest = { renaming = null },
             containerColor = scheme.surfaceVariant,
             title = { DialogTitle(stringResource(R.string.list_rename)) },
-            text = { EditorField(draft, singleLine = true) { draft = it } },
+            text = {
+                RenameField(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    onDone = ::save,
+                    modifier = Modifier.focusRequester(focus)
+                )
+            },
             confirmButton = {
-                TextButton(onClick = {
-                    vm.rename(convo.id, draft)
-                    renaming = null
-                }) { Text(stringResource(R.string.list_save), color = scheme.primary) }
+                TextButton(enabled = draft.text.isNotBlank(), onClick = ::save) {
+                    Text(stringResource(R.string.list_save), color = scheme.primary)
+                }
             },
             dismissButton = {
                 TextButton(onClick = { renaming = null }) {
@@ -245,20 +273,35 @@ private fun EmptyList() {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ConversationRow(
     convo: Conversation,
     onOpen: () -> Unit,
-    onLongPress: () -> Unit
+    onLongPress: () -> Unit,
+    onPin: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
     val pinned = stringResource(R.string.list_pinned)
+    val pinLabel = stringResource(if (convo.pinned) R.string.list_action_unpin else R.string.list_action_pin)
+    val renameLabel = stringResource(R.string.list_action_rename)
+    val deleteLabel = stringResource(R.string.list_action_delete)
+    val optionsLabel = stringResource(R.string.common_options)
     Row(
         Modifier
             .fillMaxWidth()
             // Opaque, so the delete panel behind it only shows where the row has moved.
             .background(scheme.background)
-            .combinedClick(onClick = onOpen, onLongClick = onLongPress)
+            .combinedClickable(onClick = onOpen, onLongClick = onLongPress, onLongClickLabel = optionsLabel)
+            .semantics {
+                customActions = listOf(
+                    CustomAccessibilityAction(pinLabel) { onPin(); true },
+                    CustomAccessibilityAction(renameLabel) { onRename(); true },
+                    CustomAccessibilityAction(deleteLabel) { onDelete(); true }
+                )
+            }
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -344,28 +387,89 @@ private fun SwipeToDelete(onDelete: () -> Unit, content: @Composable () -> Unit)
 @Composable
 private fun SearchField(value: String, onValueChange: (String) -> Unit) {
     val scheme = MaterialTheme.colorScheme
-    Box(
+    val focusManager = LocalFocusManager.current
+    val label = stringResource(R.string.list_search_label)
+    Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
             .background(scheme.surface)
             .border(1.dp, scheme.outline, RoundedCornerShape(20.dp))
-            .padding(horizontal = 16.dp, vertical = 11.dp)
+            .padding(start = 16.dp, end = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        if (value.isEmpty()) {
-            Text(
-                stringResource(R.string.list_search_conversations),
-                style = MaterialTheme.typography.bodyMedium,
-                color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
+        Box(Modifier.weight(1f).padding(vertical = 11.dp)) {
+            if (value.isEmpty()) {
+                Text(
+                    stringResource(R.string.list_search_conversations),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
+                )
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = scheme.onSurface),
+                cursorBrush = SolidColor(scheme.primary),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = label }
             )
         }
+        if (value.isNotEmpty()) {
+            val clear = stringResource(R.string.list_clear_search)
+            Text(
+                "×",
+                style = MaterialTheme.typography.titleMedium,
+                color = scheme.onSurfaceVariant,
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .clip(CircleShape)
+                    .clickable(role = Role.Button, onClickLabel = clear) {
+                        onValueChange("")
+                        focusManager.clearFocus()
+                    }
+                    .semantics { contentDescription = clear }
+            )
+        }
+    }
+}
+
+/** A single-line field for renaming, with the text selected and Enter to save. */
+@Composable
+private fun RenameField(
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
+    onDone: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val scheme = MaterialTheme.colorScheme
+    val label = stringResource(R.string.list_rename)
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(scheme.background)
+            .border(1.dp, scheme.outline, RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+    ) {
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
             singleLine = true,
-            textStyle = MaterialTheme.typography.bodyMedium.copy(color = scheme.onSurface),
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
             cursorBrush = SolidColor(scheme.primary),
-            modifier = Modifier.fillMaxWidth()
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Sentences,
+                imeAction = ImeAction.Done
+            ),
+            keyboardActions = KeyboardActions(onDone = { onDone() }),
+            modifier = modifier
+                .fillMaxWidth()
+                .semantics { contentDescription = label }
         )
     }
 }

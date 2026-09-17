@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -141,7 +142,7 @@ fun TopBar(
                     .size(48.dp)
                     .clip(CircleShape)
                     .semantics { contentDescription = back }
-                    .clickable(onClick = onBack),
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onBack),
                 contentAlignment = Alignment.Center
             ) { ChevronLeft(MaterialTheme.colorScheme.onBackground) }
         } else {
@@ -157,6 +158,7 @@ fun TopBar(
             modifier = Modifier
                 .weight(1f)
                 .padding(horizontal = 4.dp)
+                .semantics { heading() }
         )
 
         trailing?.invoke()
@@ -224,23 +226,31 @@ fun QuietAction(label: String, onClick: () -> Unit) {
 }
 
 @Composable
-fun OutlineButton(label: String, onClick: () -> Unit) {
+fun OutlineButton(
+    label: String,
+    color: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+    onClick: () -> Unit
+) {
     val scheme = MaterialTheme.colorScheme
     val source = rememberPressSource()
+    val buzz = tap()
     Box(
         Modifier
             .fillMaxWidth()
             .pressable(source)
             .clip(RoundedCornerShape(14.dp))
             .border(1.dp, scheme.outline, RoundedCornerShape(14.dp))
-            .clickable(interactionSource = source, indication = null, onClick = onClick)
+            .clickable(interactionSource = source, indication = null, role = androidx.compose.ui.semantics.Role.Button) {
+                buzz()
+                onClick()
+            }
             .padding(vertical = 15.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             label,
             style = MaterialTheme.typography.labelLarge,
-            color = scheme.onSurfaceVariant.copy(alpha = 0.7f)
+            color = color
         )
     }
 }
@@ -269,7 +279,15 @@ fun DialogTitle(text: String) {
 }
 
 @Composable
-fun EditorField(value: String, singleLine: Boolean = false, onValueChange: (String) -> Unit) {
+fun EditorField(
+    value: String,
+    modifier: Modifier = Modifier,
+    singleLine: Boolean = false,
+    label: String? = null,
+    keyboardOptions: androidx.compose.foundation.text.KeyboardOptions = androidx.compose.foundation.text.KeyboardOptions.Default,
+    keyboardActions: androidx.compose.foundation.text.KeyboardActions = androidx.compose.foundation.text.KeyboardActions.Default,
+    onValueChange: (String) -> Unit
+) {
     val scheme = MaterialTheme.colorScheme
     Box(
         Modifier
@@ -286,7 +304,11 @@ fun EditorField(value: String, singleLine: Boolean = false, onValueChange: (Stri
             maxLines = if (singleLine) 1 else 10,
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
             cursorBrush = SolidColor(scheme.primary),
-            modifier = Modifier.fillMaxWidth()
+            keyboardOptions = keyboardOptions,
+            keyboardActions = keyboardActions,
+            modifier = modifier
+                .fillMaxWidth()
+                .semantics { if (label != null) contentDescription = label }
         )
     }
 }

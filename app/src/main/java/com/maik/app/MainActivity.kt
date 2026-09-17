@@ -32,8 +32,9 @@ class MainActivity : ComponentActivity() {
     private val vm: ChatViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Before super.onCreate, as the splash screen library requires.
-        installSplashScreen()
+        // Before super.onCreate, as the splash screen library requires. It stays up the
+        // few milliseconds until chat history is read, so the list never flashes empty.
+        installSplashScreen().setKeepOnScreenCondition { !vm.chatsLoaded }
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         // A long decode is exactly the workload this mode exists for: a lower clock the

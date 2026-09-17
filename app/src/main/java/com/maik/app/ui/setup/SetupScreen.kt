@@ -5,7 +5,17 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.foundation.progressSemantics
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.ui.semantics.Role
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -70,17 +80,32 @@ fun SetupScreen(vm: ChatViewModel) {
         if (vm.onMeteredNetwork()) warnMetered = true else begin()
     }
 
+    BoxWithConstraints(Modifier.fillMaxSize()) {
     Column(
         Modifier
-            .fillMaxSize()
+            .fillMaxWidth()
             .verticalScroll(rememberScrollState())
+            .heightIn(min = maxHeight)
             .padding(horizontal = 28.dp, vertical = 32.dp),
         verticalArrangement = Arrangement.Center
     ) {
         Wordmark(size = 52)
         Spacer(Modifier.height(18.dp))
 
-        when (val s = vm.stage) {
+        // Keyed by the kind of stage, so download progress ticking along doesn't
+        // restart the transition; only moving from one state to the next does.
+        AnimatedContent(
+            targetState = vm.stage,
+            contentKey = { stage -> stage::class to (stage as? Stage.Downloading)?.verifying },
+            transitionSpec = {
+                (fadeIn(tween(Motion.NORMAL, delayMillis = 60)) +
+                    slideInVertically(tween(Motion.NORMAL, easing = FastOutSlowInEasing)) { it / 12 }) togetherWith
+                    fadeOut(tween(Motion.QUICK)) using
+                    SizeTransform(clip = false)
+            },
+            label = "setupStage"
+        ) { stage ->
+        when (val s = stage) {
             is Stage.NeedsModel -> RisesIn(key = "needs") {
                 Column {
                     Text(
@@ -110,24 +135,31 @@ fun SetupScreen(vm: ChatViewModel) {
             is Stage.Downloading -> {
                 val started = s.bytes > 0
                 Text(
-                    if (started) stringResource(R.string.setup_downloading, spec.label) else stringResource(R.string.setup_starting),
+                    when {
+                        s.verifying -> stringResource(R.string.setup_verifying_title)
+                        started -> stringResource(R.string.setup_downloading, spec.label)
+                        else -> stringResource(R.string.setup_starting)
+                    },
                     style = MaterialTheme.typography.headlineSmall,
                     color = scheme.onBackground
                 )
                 Spacer(Modifier.height(20.dp))
-                ProgressBar(s.fraction, indeterminate = !started)
+                ProgressBar(s.fraction, indeterminate = !started || s.verifying)
                 Spacer(Modifier.height(12.dp))
                 Row(Modifier.fillMaxWidth()) {
                     Text(
-                        if (started) stringResource(R.string.setup_mb, s.bytes / 1024 / 1024, s.total / 1024 / 1024)
-                        else stringResource(R.string.setup_connecting),
+                        when {
+                            s.verifying -> stringResource(R.string.setup_verifying_detail)
+                            started -> stringResource(R.string.setup_mb, s.bytes / 1024 / 1024, s.total / 1024 / 1024)
+                            else -> stringResource(R.string.setup_connecting)
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                     )
                     Spacer(Modifier.weight(1f))
-                    if (started) {
+                    if (started && !s.verifying) {
                         Text(
-                            "${(s.fraction * 100).toInt()}%",
+                            java.text.NumberFormat.getPercentInstance().format(s.fraction.toDouble()),
                             style = MaterialTheme.typography.bodyMedium,
                             color = scheme.primary
                         )
@@ -140,7 +172,7 @@ fun SetupScreen(vm: ChatViewModel) {
                     color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                 )
                 Spacer(Modifier.height(22.dp))
-                OutlineButton(stringResource(R.string.setup_cancel), vm::cancelDownload)
+                OutlineButton(stringResource(R.string.setup_cancel), onClick = vm::cancelDownload)
             }
 
             is Stage.Loading -> {
@@ -186,10 +218,14 @@ fun SetupScreen(vm: ChatViewModel) {
             }
         }
 
+        }
+
         if (vm.stage !is Stage.Ready) {
             Spacer(Modifier.height(24.dp))
             QuietAction(if (vm.conversations.isEmpty()) stringResource(R.string.setup_not_now) else stringResource(R.string.setup_back), vm::back)
         }
+    }
+
     }
 
     if (explainNotifications) {
@@ -281,9 +317,10 @@ private fun BrokenState(vm: ChatViewModel, stage: Stage.Broken, onRefetch: () ->
                 style = MaterialTheme.typography.labelSmall,
                 color = scheme.primary,
                 modifier = Modifier
+                    .minimumInteractiveComponentSize()
                     .clip(RoundedCornerShape(8.dp))
-                    .clickable { showDetail = !showDetail }
-                    .padding(vertical = 4.dp)
+                    .clickable(role = Role.Button) { showDetail = !showDetail }
+                    .padding(horizontal = 4.dp, vertical = 4.dp)
             )
             if (showDetail) {
                 Spacer(Modifier.height(8.dp))
@@ -358,11 +395,15 @@ private fun SpecRow(label: String, value: String) {
 @Composable
 private fun ProgressBar(fraction: Float, indeterminate: Boolean) {
     val scheme = MaterialTheme.colorScheme
-    val animated by animateFloatAsState(fraction, tween(300), label = "dl")
+    val animated by animateFloatAsState(fraction, tween(Motion.NORMAL), label = "dl")
 
     Box(
         Modifier
             .fillMaxWidth()
+            .then(
+                if (indeterminate) Modifier.progressSemantics()
+                else Modifier.progressSemantics(fraction.coerceIn(0f, 1f))
+            )
             .height(6.dp)
             .clip(CircleShape)
             .background(scheme.surfaceVariant)

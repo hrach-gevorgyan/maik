@@ -3,45 +3,32 @@ package com.maik.app
 import com.maik.app.data.ResumePlan
 import com.maik.app.data.ResumePlan.Outcome
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** An interrupted 2.6 GB download used to start again from zero. */
+/** An interrupted 2.6 GB download used to start again from zero, or splice two files. */
 class ResumePlanTest {
 
     private val size = 2_588_147_712L
 
     @Test
     fun `a fresh download starts at zero`() {
-        val plan = ResumePlan.of(have = 0, responseCode = 200, contentLength = size, expectedTotal = size)
-        assertFalse(plan.resuming)
-        assertEquals(0L, plan.start)
-        assertEquals(size, plan.total)
+        assertEquals(Outcome.Copy(0, size, resuming = false), ResumePlan.decide(0, 200, size, size, null))
     }
 
     @Test
     fun `a 206 continues from the bytes already on disk`() {
         val have = 1_000_000_000L
-        val plan = ResumePlan.of(have, responseCode = 206, contentLength = size - have, expectedTotal = size)
-        assertTrue(plan.resuming)
-        assertEquals(have, plan.start)
-        assertEquals(size, plan.total)
+        assertEquals(Outcome.Copy(have, size, resuming = true), ResumePlan.decide(have, 206, size - have, size, have))
     }
 
     @Test
-    fun `a 200 to a range request means start over, not append a second copy`() {
-        val plan = ResumePlan.of(have = 1_000_000_000L, responseCode = 200, contentLength = size, expectedTotal = size)
-        assertFalse(plan.resuming)
-        assertEquals(0L, plan.start)
-        assertEquals(size, plan.total)
+    fun `a 200 to a range request starts over rather than appending a second copy`() {
+        assertEquals(Outcome.Copy(0, size, resuming = false), ResumePlan.decide(1_000_000_000L, 200, size, size, null))
     }
 
     @Test
-    fun `an unknown length falls back to the model's known size`() {
-        val have = 500L
-        val plan = ResumePlan.of(have, responseCode = 206, contentLength = -1, expectedTotal = size)
-        assertEquals(size, plan.total)
+    fun `a 206 of unknown length falls back to the model's known size`() {
+        assertEquals(Outcome.Copy(500, size, resuming = true), ResumePlan.decide(500, 206, -1, size, 500))
     }
 
     @Test
@@ -60,18 +47,8 @@ class ResumePlanTest {
     }
 
     @Test
-    fun `a 206 from the right offset continues`() {
-        assertEquals(Outcome.Copy(100, size, resuming = true), ResumePlan.decide(100, 206, size - 100, size, 100))
-    }
-
-    @Test
     fun `a 206 for a fresh download is a plain copy`() {
         assertEquals(Outcome.Copy(0, size, resuming = false), ResumePlan.decide(0, 206, size, size, 0))
-    }
-
-    @Test
-    fun `a 200 ignores the partial and copies from zero`() {
-        assertEquals(Outcome.Copy(0, size, resuming = false), ResumePlan.decide(100, 200, -1, size, null))
     }
 
     @Test
