@@ -18,7 +18,7 @@ import com.maik.app.ui.theme.*
 object ContextBudget {
 
     /** Share of the window given to replayed history; the rest is for the reply and growth. */
-    const val SEED_SHARE = 0.3
+    const val SEED_SHARE = 0.5
 
     /** Past this share of the window, the conversation is rebuilt from recent turns. */
     const val FULL_SHARE = 0.8

@@ -105,6 +105,7 @@ fun SetupScreen(vm: ChatViewModel) {
             },
             label = "setupStage"
         ) { stage ->
+        Column {
         when (val s = stage) {
             is Stage.NeedsModel -> RisesIn(key = "needs") {
                 Column {
@@ -115,10 +116,14 @@ fun SetupScreen(vm: ChatViewModel) {
                     )
                     Spacer(Modifier.height(22.dp))
                     SpecRow(stringResource(R.string.setup_model), spec.label)
-                    SpecRow(stringResource(R.string.setup_size), stringResource(R.string.setup_mb_once, spec.approxMb))
+                    SpecRow(stringResource(R.string.setup_size), stringResource(R.string.setup_mb_once, fileSize(spec.approxBytes)))
                     SpecRow(stringResource(R.string.setup_after), stringResource(R.string.setup_fully_offline))
                     Spacer(Modifier.height(26.dp))
-                    BigButton(stringResource(R.string.setup_download, spec.label)) {
+                    val partial = remember(spec.id, vm.storageVersion) { vm.partialBytes(spec) }
+                    BigButton(
+                        if (partial > 0) stringResource(R.string.setup_continue_with_partial, fileSize(partial), fileSize(spec.approxBytes))
+                        else stringResource(R.string.setup_download, spec.label)
+                    ) {
                         guardedStart(vm::startDownload)
                     }
                     Spacer(Modifier.height(12.dp))
@@ -128,7 +133,7 @@ fun SetupScreen(vm: ChatViewModel) {
                         color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                     )
                     Spacer(Modifier.height(20.dp))
-                    QuietAction(stringResource(R.string.setup_choose_a_different_model), vm::openModels)
+                    QuietAction(stringResource(R.string.setup_choose_a_different_model), onClick = vm::openModels)
                 }
             }
 
@@ -150,7 +155,7 @@ fun SetupScreen(vm: ChatViewModel) {
                     Text(
                         when {
                             s.verifying -> stringResource(R.string.setup_verifying_detail)
-                            started -> stringResource(R.string.setup_mb, s.bytes / 1024 / 1024, s.total / 1024 / 1024)
+                            started -> stringResource(R.string.setup_mb, fileSize(s.bytes), fileSize(s.total))
                             else -> stringResource(R.string.setup_connecting)
                         },
                         style = MaterialTheme.typography.bodyMedium,
@@ -219,10 +224,11 @@ fun SetupScreen(vm: ChatViewModel) {
         }
 
         }
+        }
 
         if (vm.stage !is Stage.Ready) {
             Spacer(Modifier.height(24.dp))
-            QuietAction(if (vm.conversations.isEmpty()) stringResource(R.string.setup_not_now) else stringResource(R.string.setup_back), vm::back)
+            QuietAction(if (vm.conversations.isEmpty()) stringResource(R.string.setup_not_now) else stringResource(R.string.setup_back), onClick = vm::back)
         }
     }
 
@@ -238,7 +244,7 @@ fun SetupScreen(vm: ChatViewModel) {
             title = { DialogTitle(stringResource(R.string.setup_show_download_progress)) },
             text = {
                 Text(
-                    stringResource(R.string.setup_mb_takes_a_while_a, spec.approxMb),
+                    stringResource(R.string.setup_mb_takes_a_while_a, fileSize(spec.approxBytes)),
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
@@ -269,7 +275,7 @@ fun SetupScreen(vm: ChatViewModel) {
             title = { DialogTitle(stringResource(R.string.setup_you_are_not_on_wi)) },
             text = {
                 Text(
-                    stringResource(R.string.setup_this_will_pull_mb_over, spec.approxMb),
+                    stringResource(R.string.setup_this_will_pull_mb_over, fileSize(spec.approxBytes)),
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
@@ -336,12 +342,17 @@ private fun BrokenState(vm: ChatViewModel, stage: Stage.Broken, onRefetch: () ->
 
         Spacer(Modifier.height(26.dp))
         when (stage.fix) {
-            Fix.RESUME_DOWNLOAD -> BigButton(stringResource(R.string.setup_continue_download), onClick = onRefetch)
+            // "Continue" only when there is something to continue from.
+            Fix.RESUME_DOWNLOAD -> BigButton(
+                if (remember(vm.target.id, vm.storageVersion) { vm.partialBytes(vm.target) } > 0) stringResource(R.string.setup_continue_download)
+                else stringResource(R.string.setup_try_again),
+                onClick = onRefetch
+            )
             Fix.REDOWNLOAD -> BigButton(stringResource(R.string.setup_download_again), onClick = onRedownload)
             Fix.RETRY_LOAD -> BigButton(stringResource(R.string.setup_try_again), onClick = vm::retry)
         }
         Spacer(Modifier.height(12.dp))
-        QuietAction(stringResource(R.string.setup_try_a_different_model), vm::openModels)
+        QuietAction(stringResource(R.string.setup_try_a_different_model), onClick = vm::openModels)
     }
 }
 
@@ -382,7 +393,7 @@ private fun SpecRow(label: String, value: String) {
             label,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f),
-            modifier = Modifier.width(78.dp)
+            modifier = Modifier.widthIn(min = 78.dp)
         )
         Text(
             value,

@@ -120,6 +120,7 @@ fun ConversationListScreen(vm: ChatViewModel) {
                                         buzz()
                                         menuFor = convo
                                     },
+                                    writing = vm.generatingId == convo.id,
                                     onPin = { vm.togglePin(convo.id) },
                                     onRename = { renaming = convo },
                                     onDelete = { confirmDelete = convo }
@@ -193,7 +194,6 @@ fun ConversationListScreen(vm: ChatViewModel) {
             mutableStateOf(TextFieldValue(convo.title, selection = TextRange(0, convo.title.length)))
         }
         val focus = remember { FocusRequester() }
-        LaunchedEffect(convo.id) { focus.requestFocus() }
         fun save() {
             if (draft.text.isBlank()) return
             vm.rename(convo.id, draft.text)
@@ -210,6 +210,11 @@ fun ConversationListScreen(vm: ChatViewModel) {
                     onDone = ::save,
                     modifier = Modifier.focusRequester(focus)
                 )
+                // The dialog has its own window; wait for its first frame before focusing.
+                LaunchedEffect(convo.id) {
+                    withFrameNanos { }
+                    runCatching { focus.requestFocus() }
+                }
             },
             confirmButton = {
                 TextButton(enabled = draft.text.isNotBlank(), onClick = ::save) {
@@ -277,6 +282,7 @@ private fun EmptyList() {
 @Composable
 private fun ConversationRow(
     convo: Conversation,
+    writing: Boolean,
     onOpen: () -> Unit,
     onLongPress: () -> Unit,
     onPin: () -> Unit,
@@ -336,7 +342,7 @@ private fun ConversationRow(
         }
         Spacer(Modifier.width(14.dp))
         Text(
-            relativeTime(convo.updatedAt),
+            if (writing) stringResource(R.string.chat_writing) else relativeTime(convo.updatedAt),
             style = MaterialTheme.typography.labelSmall,
             color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
         )

@@ -114,7 +114,7 @@ private val ENTRIES = listOf(
     },
     Entry(SettingsPage.Storage, { stringResource(R.string.settings_storage) }) {
         val bytes = remember(it.storageVersion) { it.bytesOnDisk() }
-        stringResource(R.string.settings_mb_of_models, bytes / 1024 / 1024)
+        stringResource(R.string.settings_mb_of_models, fileSize(bytes))
     },
     Entry(SettingsPage.About, { stringResource(R.string.settings_about) }) { stringResource(R.string.settings_version_licence_how_it_works) }
 )
@@ -211,7 +211,7 @@ private fun ModelsPage(vm: ChatViewModel) {
             title = { DialogTitle(stringResource(R.string.settings_delete, model.label)) },
             text = {
                 Text(
-                    stringResource(R.string.settings_this_frees_mb_your_chats, model.approxMb),
+                    stringResource(R.string.settings_this_frees_mb_your_chats, fileSize(model.approxBytes)),
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurfaceVariant
                 )
@@ -270,14 +270,18 @@ private fun ModelRow(
             }
             Spacer(Modifier.weight(1f))
             Text(
-                stringResource(R.string.settings_mb, model.approxMb),
+                stringResource(R.string.settings_mb, fileSize(model.approxBytes)),
                 style = MaterialTheme.typography.labelSmall,
                 color = scheme.onSurfaceVariant
             )
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            stringResource(R.string.settings_k_context, model.params, model.contextTokens / 1024),
+            stringResource(
+                R.string.settings_k_context,
+                model.params,
+                java.text.NumberFormat.getIntegerInstance().format((model.contextTokens * 3 / 4) / 100 * 100)
+            ),
             style = MaterialTheme.typography.labelSmall,
             color = scheme.onSurfaceVariant
         )
@@ -286,7 +290,7 @@ private fun ModelRow(
         if (model.heavy) {
             Spacer(Modifier.height(6.dp))
             Text(
-                stringResource(R.string.settings_heavy_model, model.approxMb),
+                stringResource(R.string.settings_heavy_model),
                 style = MaterialTheme.typography.bodyMedium,
                 color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
             )
@@ -323,6 +327,15 @@ private fun ModelRow(
             if (installed && !downloading && !vm.isLoadingModel) {
                 RowAction(stringResource(R.string.settings_delete_2), scheme.error, onDelete)
             }
+        }
+        val partial = remember(vm.storageVersion, downloading) { vm.partialBytes(model) }
+        if (!installed && !downloading && partial > 0) {
+            Text(
+                stringResource(R.string.settings_partial_present, fileSize(partial), fileSize(model.approxBytes)),
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
+            )
+            RowAction(stringResource(R.string.settings_remove_partial), scheme.error) { vm.removePartialDownload(model) }
         }
         if (installed && vm.isLoadingModel) {
             Text(
@@ -450,7 +463,7 @@ private fun InstructionsPage(vm: ChatViewModel) {
     // The arrow, the system back gesture and Save all keep what was typed. Unchanged
     // instructions aren't re-saved, because saving restarts the conversation.
     fun leave() {
-        if (draft.trim() != vm.systemPrompt) {
+        if (draft.trim().ifEmpty { DEFAULT_SYSTEM_PROMPT } != vm.systemPrompt) {
             vm.updateSystemPrompt(draft)
             android.widget.Toast.makeText(
                 context, context.getString(R.string.settings_instructions_saved), android.widget.Toast.LENGTH_SHORT
@@ -458,7 +471,8 @@ private fun InstructionsPage(vm: ChatViewModel) {
         }
         vm.openSettingsPage(SettingsPage.Root)
     }
-    androidx.activity.compose.BackHandler { leave() }
+    // Only while this is the page: during the exit animation it is still composed.
+    androidx.activity.compose.BackHandler(enabled = vm.settingsPage == SettingsPage.Instructions) { leave() }
 
     Column(Modifier.fillMaxSize()) {
         TopBar(title = stringResource(R.string.settings_instructions), onBack = ::leave)
@@ -512,7 +526,7 @@ private fun StoragePage(vm: ChatViewModel) {
         LazyColumn(contentPadding = PaddingValues(20.dp)) {
             item {
                 Text(
-                    stringResource(R.string.settings_mb_of_models_on_this, onDisk / 1024 / 1024),
+                    stringResource(R.string.settings_mb_of_models_on_this, fileSize(onDisk)),
                     style = MaterialTheme.typography.titleMedium,
                     color = scheme.onBackground
                 )

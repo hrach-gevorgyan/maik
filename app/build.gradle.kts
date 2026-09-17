@@ -7,8 +7,8 @@ plugins {
 
 // Single source of truth for the version, overridable from CI:
 //   ./gradlew assembleRelease -PmaikVersionName=1.2.0 -PmaikVersionCode=5
-val maikVersionName: String = (findProperty("maikVersionName") as String?) ?: "2.5.0"
-val maikVersionCode: Int = (findProperty("maikVersionCode") as String?)?.toInt() ?: 20500
+val maikVersionName: String = (findProperty("maikVersionName") as String?) ?: "2.6.0"
+val maikVersionCode: Int = (findProperty("maikVersionCode") as String?)?.toInt() ?: 20600
 
 // Set by the release workflow. Keeps emulator-only architectures out of an APK
 // that real people will install.
@@ -118,9 +118,9 @@ dependencies {
     // model's own chat template and stop tokens, which the MediaPipe runtime did not.
     implementation("com.google.ai.edge.litertlm:litertlm-android:0.17.1")
 
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("androidx.core:core-ktx:1.15.0")
-    implementation("androidx.core:core-splashscreen:1.0.1")
+    implementation("androidx.core:core-splashscreen:1.2.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
@@ -137,5 +137,5 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
-    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 }

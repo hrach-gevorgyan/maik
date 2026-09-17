@@ -52,18 +52,24 @@ class RelativeTimeTest {
 
     @Test
     fun `just-now and minutes`() {
-        assertEquals("now", relativeTime(now - 5_000, now))
-        assertEquals("14m", relativeTime(now - 14 * 60_000, now))
+        assertEquals(Ago.Now, ago(now - 5_000, now))
+        assertEquals(Ago.Minutes(14), ago(now - 14 * 60_000, now))
     }
 
     @Test
     fun `hours and days`() {
-        assertEquals("3h", relativeTime(now - 3 * 3_600_000, now))
-        assertEquals("2d", relativeTime(now - 2 * 86_400_000, now))
+        assertEquals(Ago.Hours(3), ago(now - 3 * 3_600_000, now))
+        assertEquals(Ago.Days(2), ago(now - 2 * 86_400_000, now))
+    }
+
+    @Test
+    fun `a week or more becomes a date`() {
+        val at = now - 8 * 86_400_000
+        assertEquals(Ago.On(at), ago(at, now))
     }
 
     @Test
     fun `a clock skewed into the future reads as now, not a negative`() {
-        assertEquals("now", relativeTime(now + 60_000, now))
+        assertEquals(Ago.Now, ago(now + 60_000, now))
     }
 }

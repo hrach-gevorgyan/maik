@@ -205,8 +205,9 @@ fun BigButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
 
 /** A low-key text action, centred — used where a button would shout. */
 @Composable
-fun QuietAction(label: String, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+fun QuietAction(label: String, fill: Boolean = true, onClick: () -> Unit) {
+    // fill = false lets two actions sit side by side, centred as a pair.
+    Row(if (fill) Modifier.fillMaxWidth() else Modifier, horizontalArrangement = Arrangement.Center) {
         Text(
             label,
             style = MaterialTheme.typography.labelLarge,

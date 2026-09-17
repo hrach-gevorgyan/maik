@@ -41,11 +41,13 @@ internal fun Composer(
     onValueChange: (String) -> Unit,
     busy: Boolean,
     ready: Boolean,
+    waitingHint: String = "",
     onSend: () -> Unit,
     onStop: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
     val sendLabel = stringResource(R.string.chat_send)
+    val messageBox = stringResource(R.string.chat_message_box)
     val stopLabel = stringResource(R.string.chat_stop)
     // Typing is always allowed, so a question can be ready by the time the model is.
     val canSend = value.isNotBlank() && !busy && ready
@@ -69,7 +71,7 @@ internal fun Composer(
                 Text(
                     when {
                         busy -> stringResource(R.string.chat_maik_is_answering)
-                        !ready -> stringResource(R.string.chat_waiting_for_the_model)
+                        !ready -> waitingHint.ifEmpty { stringResource(R.string.chat_waiting_for_the_model) }
                         else -> stringResource(R.string.chat_ask_maik_anything)
                     },
                     style = MaterialTheme.typography.bodyLarge,
@@ -83,7 +85,9 @@ internal fun Composer(
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
                 cursorBrush = SolidColor(scheme.primary),
                 maxLines = 5,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .semantics { contentDescription = messageBox }
             )
         }
 

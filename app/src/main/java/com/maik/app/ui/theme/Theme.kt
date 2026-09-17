@@ -160,20 +160,34 @@ fun MaikTheme(mode: ThemeMode = ThemeMode.SYSTEM, content: @Composable () -> Uni
         }
     }
 
-    // Crossfade every colour rather than snapping, so switching theme reads as one
-    // continuous movement instead of a flash.
-    val spec = tween<Color>(420)
+    // Crossfade every colour the app uses, so switching theme reads as one continuous
+    // movement. Animating only some of them made sheets and error panels snap mid-fade.
+    @Composable
+    fun fade(color: Color, label: String) = animateColorAsState(color, tween(Motion.THEME), label = label).value
     val scheme = target.copy(
-        primary = animateColorAsState(target.primary, spec, label = "primary").value,
-        onPrimary = animateColorAsState(target.onPrimary, spec, label = "onPrimary").value,
-        background = animateColorAsState(target.background, spec, label = "bg").value,
-        onBackground = animateColorAsState(target.onBackground, spec, label = "onBg").value,
-        surface = animateColorAsState(target.surface, spec, label = "surface").value,
-        onSurface = animateColorAsState(target.onSurface, spec, label = "onSurface").value,
-        surfaceVariant = animateColorAsState(target.surfaceVariant, spec, label = "sv").value,
-        onSurfaceVariant = animateColorAsState(target.onSurfaceVariant, spec, label = "osv").value,
-        outline = animateColorAsState(target.outline, spec, label = "outline").value,
-        error = animateColorAsState(target.error, spec, label = "error").value
+        primary = fade(target.primary, "primary"),
+        onPrimary = fade(target.onPrimary, "onPrimary"),
+        primaryContainer = fade(target.primaryContainer, "primaryContainer"),
+        onPrimaryContainer = fade(target.onPrimaryContainer, "onPrimaryContainer"),
+        background = fade(target.background, "background"),
+        onBackground = fade(target.onBackground, "onBackground"),
+        surface = fade(target.surface, "surface"),
+        onSurface = fade(target.onSurface, "onSurface"),
+        surfaceVariant = fade(target.surfaceVariant, "surfaceVariant"),
+        onSurfaceVariant = fade(target.onSurfaceVariant, "onSurfaceVariant"),
+        surfaceContainer = fade(target.surfaceContainer, "surfaceContainer"),
+        surfaceContainerHigh = fade(target.surfaceContainerHigh, "surfaceContainerHigh"),
+        surfaceContainerHighest = fade(target.surfaceContainerHighest, "surfaceContainerHighest"),
+        surfaceContainerLow = fade(target.surfaceContainerLow, "surfaceContainerLow"),
+        surfaceContainerLowest = fade(target.surfaceContainerLowest, "surfaceContainerLowest"),
+        inverseSurface = fade(target.inverseSurface, "inverseSurface"),
+        inverseOnSurface = fade(target.inverseOnSurface, "inverseOnSurface"),
+        outline = fade(target.outline, "outline"),
+        outlineVariant = fade(target.outlineVariant, "outlineVariant"),
+        error = fade(target.error, "error"),
+        onError = fade(target.onError, "onError"),
+        errorContainer = fade(target.errorContainer, "errorContainer"),
+        onErrorContainer = fade(target.onErrorContainer, "onErrorContainer")
     )
 
     MaterialTheme(colorScheme = scheme, typography = MaikType, content = content)

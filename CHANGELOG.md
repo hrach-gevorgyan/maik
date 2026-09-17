@@ -7,6 +7,60 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 2.6.0 — 17 September 2026
+
+**A third pass: every journey walked end to end, and checked on a device this time.**
+
+### Fixed
+
+- **The download and loading screens drew everything on top of each other** — a slip in
+  2.5's new animation. Caught on the emulator and fixed.
+- **Renaming a chat could crash** on some phones as the dialog opened.
+- **A model too big for the phone could crash maik on every launch.** maik now remembers,
+  and asks before loading it again.
+- **A question left unanswered** (for example when Android closed maik mid-reply) now has
+  a "Get an answer" button instead of a dead end.
+- **Replies no longer stop silently at the length limit.** A cut-off reply offers
+  Continue, which picks up where it stopped.
+- **Deleting your message takes its reply with it**, so Regenerate can't wipe answers you
+  meant to keep.
+- **Returning to a chat that is still being written no longer stops it**, and the chat
+  list shows "Writing…" next to it.
+- **Tapping outside "This chat used…" no longer switches the chat's model.**
+- **New chats use the model marked "in use"**, as the Models page says.
+- Back from a download opened in Models returns to Models.
+- Leaving Instructions after clearing the text no longer restarts the model for nothing,
+  and an interrupted download from an older version is resumed rather than restarted.
+
+### Better
+
+- **The download ends with a notification** — "Gemma 4 E2B is ready" or why it stopped —
+  instead of simply vanishing.
+- **Sizes read "2.6 GB"**, not "2468 MB", in your phone's own number format.
+- **An unfinished download says how much is already here**, and can be removed from the
+  Models page to get the space back.
+- **Plain words instead of jargon:** "graphics chip" and "processor" rather than GPU and
+  CPU; "keeps about 1,500 words in mind" rather than "2K context".
+- **Honest status in the message box:** "Download a model to start" when there isn't one,
+  rather than "Waiting for the model…".
+- **Friendly errors:** "maik couldn't finish that answer" instead of the engine's internal
+  message.
+- **The model remembers more of a chat** when it has to re-read it (after Stop, edits or
+  reopening).
+- **Timestamps translate**, and dates follow your phone's format.
+- **TalkBack:** replies are announced when they finish, the typing indicator is described,
+  bubbles no longer claim to be tappable, the message box is labelled, the model picker is
+  a proper choice list, and the code copy button says "Copy code".
+- Theme changes crossfade every colour, not just some.
+
+### Under the hood
+
+- 79 unit tests; 5 Compose UI tests and the golden model test pass on an emulator.
+- kotlinx-serialization 1.9.0, core-splashscreen 1.2.0, coroutines-test 1.11.0.
+- The golden workflow skips documentation-only pull requests.
+
+---
+
 ## 2.5.0 — 17 September 2026
 
 **A full second pass, over everything that wasn't the chat screen.**

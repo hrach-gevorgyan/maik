@@ -9,6 +9,8 @@ name: Golden
 on:
   pull_request:
     branches: [main]
+    # Half an hour of emulator and a model download buys nothing for a docs change.
+    paths-ignore: ["**.md", "LICENSE", ".github/ISSUE_TEMPLATE/**"]
   workflow_dispatch:
   workflow_call:
 

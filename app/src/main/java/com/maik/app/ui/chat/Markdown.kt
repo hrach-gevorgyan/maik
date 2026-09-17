@@ -256,6 +256,7 @@ fun MarkdownText(source: String, color: Color, modifier: Modifier = Modifier) {
                         )
                         val context = LocalContext.current
                         val buzz = tap()
+                        val copyCode = androidx.compose.ui.res.stringResource(com.maik.app.R.string.chat_copy_code)
                         Text(
                             stringResource(R.string.chat_copy),
                             style = MaterialTheme.typography.labelSmall,
@@ -263,7 +264,7 @@ fun MarkdownText(source: String, color: Color, modifier: Modifier = Modifier) {
                             modifier = Modifier
                                 .minimumInteractiveComponentSize()
                                 .clip(RoundedCornerShape(8.dp))
-                                .clickable {
+                                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = copyCode) {
                                     buzz()
                                     copyToClipboard(context, block.text)
                                 }

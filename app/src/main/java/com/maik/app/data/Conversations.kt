@@ -25,7 +25,9 @@ data class Message(
     val isError: Boolean = false,
     val at: Long = System.currentTimeMillis(),
     /** Speed figures for a reply, shown only in debug mode. */
-    val stats: String? = null
+    val stats: String? = null,
+    /** The reply stopped at the length limit rather than because it was finished. */
+    val truncated: Boolean = false
 )
 
 @Immutable
@@ -136,17 +138,28 @@ fun decodeConversations(json: Json, text: String): List<Conversation>? =
         }.getOrNull()
     }
 
-/** "now", "14m", "3h", "2d", "12 Mar" — compact enough for a list row. */
-fun relativeTime(at: Long, now: Long = System.currentTimeMillis()): String {
+/** How long ago something happened, in the unit a list row should show it in. */
+sealed interface Ago {
+    data object Now : Ago
+    data class Minutes(val count: Long) : Ago
+    data class Hours(val count: Long) : Ago
+    data class Days(val count: Long) : Ago
+
+    /** Over a week: shown as a date rather than a count. */
+    data class On(val at: Long) : Ago
+}
+
+/** Pure, so it can be tested; the words for each case live in string resources. */
+fun ago(at: Long, now: Long = System.currentTimeMillis()): Ago {
     val delta = (now - at).coerceAtLeast(0)
     val minutes = delta / 60_000
     val hours = delta / 3_600_000
     val days = delta / 86_400_000
     return when {
-        minutes < 1 -> "now"
-        minutes < 60 -> "${minutes}m"
-        hours < 24 -> "${hours}h"
-        days < 7 -> "${days}d"
-        else -> android.text.format.DateFormat.format("d MMM", at).toString()
+        minutes < 1 -> Ago.Now
+        minutes < 60 -> Ago.Minutes(minutes)
+        hours < 24 -> Ago.Hours(hours)
+        days < 7 -> Ago.Days(days)
+        else -> Ago.On(at)
     }
 }

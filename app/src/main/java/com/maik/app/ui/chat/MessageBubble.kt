@@ -15,7 +15,10 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.onLongClick
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -42,6 +45,7 @@ import com.maik.app.ui.theme.*
 internal fun Bubble(msg: Message, onLongPress: (() -> Unit)? = null) {
     val scheme = MaterialTheme.colorScheme
     val buzz = tap()
+    val optionsLabel = stringResource(R.string.chat_message_options)
 
     val bg = when {
         msg.isError -> scheme.error.copy(alpha = 0.12f)
@@ -67,15 +71,22 @@ internal fun Bubble(msg: Message, onLongPress: (() -> Unit)? = null) {
                     else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
                 )
                 .background(bg)
-                .combinedClickable(
-                    onClick = {},
-                    onLongClickLabel = stringResource(R.string.chat_message_options),
-                    onLongClick = onLongPress?.let {
-                        {
-                            buzz()
-                            it()
+                // Long press only: a tap does nothing, so TalkBack must not offer one.
+                .then(
+                    if (onLongPress == null) Modifier
+                    else Modifier
+                        .pointerInput(onLongPress) {
+                            detectTapGestures(onLongPress = {
+                                buzz()
+                                onLongPress()
+                            })
                         }
-                    }
+                        .semantics {
+                            onLongClick(label = optionsLabel) {
+                                onLongPress()
+                                true
+                            }
+                        }
                 )
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {

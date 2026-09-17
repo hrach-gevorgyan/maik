@@ -173,7 +173,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private var liveReply = StringBuffer()
 
     /** The chat the running reply belongs to, which is not always the one on screen. */
-    private var generatingId: String? = null
+    var generatingId by mutableStateOf<String?>(null)
+        private set
+
+    /** The longest reply the next conversation is allowed to write. */
+    private val replyCap: Int get() = if (keepCool) SHORT_REPLY_TOKENS else LONG_REPLY_TOKENS
 
     /** Set by Stop: a cancelled runtime conversation doesn't answer again, so rebuild it. */
     private var sessionStale = false
@@ -217,9 +221,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
         // The process died during the last load. The GPU is the prime suspect: it can
         // crash natively, and no error handling sees that.
-        if (store.lastLoadCrashed()) {
+        val crashedOnGpu = store.lastLoadCrashed() && store.lastCrashWasGpu()
+        val crashedOnCpu = store.lastLoadCrashed() && !store.lastCrashWasGpu()
+        if (store.lastLoadCrashed()) store.clearCrashMarker()
+        if (crashedOnGpu) {
             store.setUseGpu(false)
-            store.clearCrashMarker()
+            android.widget.Toast.makeText(app, text(R.string.chat_gpu_crashed), android.widget.Toast.LENGTH_LONG).show()
         }
         useGpu = store.useGpu
 
@@ -239,6 +246,13 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 stage = Stage.Downloading(progress?.bytes ?: 0, progress?.total ?: target.approxBytes)
             }
 
+            // The phone closed maik while loading this model last time. Loading it again on
+            // its own would likely do the same, so ask first.
+            crashedOnCpu && store.isReady(preferred()) -> {
+                target = preferred()
+                stage = Stage.Broken(text(R.string.model_crashed_last_time, preferred().label), "", Fix.RETRY_LOAD)
+            }
+
             store.isReady(preferred()) -> loadEngine(preferred())
 
             else -> {
@@ -254,14 +268,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             // Anything started in the moment before loading finished stays on top.
             val startedMeanwhile = conversations.map { it.id }.toSet()
             conversations.addAll(saved.filterNot { it.id in startedMeanwhile })
-            chatsLoaded = true
-            if (startedMeanwhile.isNotEmpty()) persist()
             // First launch, with nothing downloaded yet: start where the app can be set up.
             if (screen == Screen.List && stage is Stage.NeedsModel &&
                 store.installed().isEmpty() && conversations.isEmpty()
             ) {
                 screen = Screen.Setup
             }
+            chatsLoaded = true
+            if (startedMeanwhile.isNotEmpty()) persist()
         }
     }
 
@@ -274,6 +288,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Brings the download into view, e.g. when returning from its notification. */
     fun showDownload() {
+        setupOpenedFromSettings = false
         rememberReturn()
         screen = Screen.Setup
     }
@@ -284,8 +299,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /** Download screens opened from a settings page go back to that page. */
+    private var setupOpenedFromSettings = false
+
     /** Opens the download screen for a model, without changing what new chats use. */
     fun openDownload(model: ModelSpec) {
+        setupOpenedFromSettings = screen == Screen.Settings
         if (!(stage is Stage.Downloading && target.id == model.id)) {
             target = model
             if (!store.isReady(model)) stage = Stage.NeedsModel
@@ -348,6 +367,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             screen == Screen.Settings && settingsPage != SettingsPage.Root ->
                 settingsPage = SettingsPage.Root
 
+            screen == Screen.Setup && setupOpenedFromSettings -> {
+                setupOpenedFromSettings = false
+                screen = Screen.Settings
+            }
+
             else -> when (backTarget(screen, returnTo, currentId)) {
                 Screen.Chat -> screen = Screen.Chat
                 else -> openList()
@@ -357,7 +381,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     fun open(id: String) {
         stoppedForHeat = false
-        if (busy) stop()
+        if (busy && id != generatingId) stop()
         val convo = conversations.firstOrNull { it.id == id } ?: return
         currentId = id
         dropped = 0
@@ -383,6 +407,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Answers [pendingSwitch]: load the chat's own model, or carry on with the loaded one. */
+    /** Closing the question without answering it leaves the chat exactly as it was. */
+    fun dismissSwitch() {
+        pendingSwitch = null
+    }
+
     fun resolveSwitch(useChatModel: Boolean) {
         val choice = pendingSwitch ?: return
         pendingSwitch = null
@@ -397,7 +426,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun newChat() {
         stoppedForHeat = false
         if (busy) stop()
-        val model = LocalEngine.loadedId?.let { id -> Models.ALL.firstOrNull { it.id == id } } ?: preferred()
+        val model = preferred()
         val fresh = Conversation(id = UUID.randomUUID().toString(), title = text(R.string.chat_new_chat_title), modelId = model.id)
         conversations.add(0, fresh)
         currentId = fresh.id
@@ -428,7 +457,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun deleteMessage(index: Int, at: Long) {
         val convo = current ?: return
         if (busy || convo.messages.getOrNull(index)?.at != at) return
-        replace(convo.id) { it.copy(messages = it.messages.filterIndexed { i, _ -> i != index }) }
+        // Your message and the reply it got go together; a reply with no question above it
+        // would confuse both you and the model.
+        val removeUpTo = if (convo.messages[index].fromUser) {
+            val next = convo.messages.withIndex().drop(index + 1).firstOrNull { it.value.fromUser }?.index
+            next ?: convo.messages.size
+        } else {
+            index + 1
+        }
+        replace(convo.id) { it.copy(messages = it.messages.filterIndexed { i, _ -> i !in index until removeUpTo }) }
         persist()
         viewModelScope.launch { endSession() }
     }
@@ -663,11 +700,17 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 LocalEngine.unload(s.id)
                 backend = Backend.NONE
             }
-            withContext(Dispatchers.IO) { store.delete(s) }
+            val freed = withContext(Dispatchers.IO) {
+                val before = store.bytesFor(s)
+                store.delete(s)
+                before
+            }
             storageVersion++
             // Deleting gigabytes deserves a word back, not silence.
             android.widget.Toast.makeText(
-                getApplication(), text(R.string.settings_model_deleted, s.label, s.approxMb), android.widget.Toast.LENGTH_SHORT
+                getApplication(),
+                text(R.string.settings_model_deleted, s.label, sizeText(freed)),
+                android.widget.Toast.LENGTH_SHORT
             ).show()
             if (s.id == target.id) stage = Stage.NeedsModel
         }
@@ -744,6 +787,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         bumpToTop(convo.id)
         persist()
         generate(convo.id, freshSession = false)
+    }
+
+    /** Answers the last message when it was never answered, e.g. after Android closed maik. */
+    fun answerLast() {
+        val convo = current ?: return
+        if (busy || convo.messages.lastOrNull()?.fromUser != true) return
+        generate(convo.id, freshSession = true)
+    }
+
+    /** Asks the model to carry on from a reply that hit the length limit. */
+    fun continueReply() {
+        send(text(R.string.chat_continue_prompt))
     }
 
     /** Drops the last reply and asks again from the same point. */
@@ -828,7 +883,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                         conversationId,
                         reply.toString().trim().ifEmpty { "…" },
                         isError = false,
-                        stats = statsFor(conversation, started, firstTokenAt, chunks)
+                        stats = statsFor(conversation, started, firstTokenAt, chunks),
+                        truncated = chunks >= replyCap - TRUNCATION_SLACK
                     )
                 }
             } catch (e: CancellationException) {
@@ -836,7 +892,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Throwable) {
                 if (turn == generation) {
                     dropSession()
-                    finish(conversationId, e.message ?: e::class.java.simpleName, isError = true)
+                    android.util.Log.w("maik", "Reply failed", e)
+                    finish(conversationId, text(R.string.chat_reply_failed), isError = true)
                 }
             }
         }
@@ -893,7 +950,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 // Writing a word costs far more energy than reading one, so the
                 // cheapest answer is a shorter one. Long enough for a few paragraphs,
                 // short enough that a looping model gives up rather than cooking.
-                maxOutputToken = if (keepCool) SHORT_REPLY_TOKENS else LONG_REPLY_TOKENS,
+                maxOutputToken = replyCap,
                 samplerConfig = SamplerConfig(
                     topK = 40,
                     topP = 0.95,
@@ -940,16 +997,25 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             ?: if (firstTokenAt > 0) (firstTokenAt - started) / 1000.0 else 0.0
         val rate = info?.lastDecodeTokensPerSecond?.takeIf { it > 0 }
             ?: if (firstTokenAt in 1 until ended) chunks * 1000.0 / (ended - firstTokenAt) else 0.0
-        return String.format(Locale.US, "%.1fs to first word · %.0f tok/s · %s", ttft, rate, backend.name)
+        return text(
+            R.string.chat_speed_line, ttft, rate,
+            text(if (backend == Backend.GPU) R.string.settings_gpu else R.string.settings_cpu)
+        )
     }
 
-    private fun finish(conversationId: String, text: String, isError: Boolean, stats: String? = null) {
+    private fun finish(
+        conversationId: String,
+        text: String,
+        isError: Boolean,
+        stats: String? = null,
+        truncated: Boolean = false
+    ) {
         streaming = ""
         busy = false
         generatingId = null
         replace(conversationId) {
             it.copy(
-                messages = it.messages + Message(text, fromUser = false, isError = isError, stats = stats),
+                messages = it.messages + Message(text, fromUser = false, isError = isError, stats = stats, truncated = truncated),
                 updatedAt = System.currentTimeMillis()
             )
         }
@@ -961,6 +1027,20 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     /** A translated string. The view model has no composable scope, so it asks Android. */
     private fun text(id: Int, vararg args: Any): String =
         getApplication<Application>().getString(id, *args)
+
+    /** "2.6 GB", in the phone's own units and number format. */
+    fun sizeText(bytes: Long): String = android.text.format.Formatter.formatShortFileSize(getApplication(), bytes)
+
+    /** Bytes already fetched of an unfinished download of [model]. */
+    fun partialBytes(model: ModelSpec): Long = store.partialBytes(model)
+
+    /** Discards an unfinished download, freeing its space. */
+    fun removePartialDownload(model: ModelSpec) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { store.removePartial(model) }
+            storageVersion++
+        }
+    }
 
     private inline fun replace(id: String, transform: (Conversation) -> Conversation) {
         val index = conversations.indexOfFirst { it.id == id }
@@ -1013,5 +1093,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         private const val SHORT_REPLY_TOKENS = 384
 
         private const val LONG_REPLY_TOKENS = 768
+
+        /** Pieces arrive a token or two at a time; this close to the cap, it was the cap. */
+        private const val TRUNCATION_SLACK = 4
     }
 }

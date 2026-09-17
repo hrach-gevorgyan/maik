@@ -48,6 +48,9 @@ object Motion {
     const val QUICK = 110
     const val NORMAL = 190
 
+    /** Switching light and dark: slow enough to read as a change of light, not a flash. */
+    const val THEME = 420
+
     /** For anything that should feel physical rather than timed. */
     fun <T> springy() = spring<T>(
         dampingRatio = Spring.DampingRatioLowBouncy,

@@ -192,7 +192,8 @@ class ModelStore(context: Context) {
      * clear it on success. Finding the note at startup means the last attempt took the
      * whole process down.
      */
-    fun beginRiskyLoad() = prefs.edit().putBoolean("loading", true).commit()
+    fun beginRiskyLoad(gpu: Boolean) =
+        prefs.edit().putBoolean("loading", true).putBoolean("loading_gpu", gpu).commit()
 
     fun endRiskyLoad() = prefs.edit().putBoolean("loading", false).commit()
 
@@ -200,6 +201,9 @@ class ModelStore(context: Context) {
     fun clearCrashMarker() = prefs.edit().putBoolean("loading", false).apply()
 
     fun lastLoadCrashed(): Boolean = prefs.getBoolean("loading", false)
+
+    /** Whether the load that crashed was trying the GPU. */
+    fun lastCrashWasGpu(): Boolean = prefs.getBoolean("loading_gpu", true)
 
     fun setThemeMode(mode: ThemeMode) {
         themeMode = mode
@@ -232,10 +236,7 @@ class ModelStore(context: Context) {
     fun installed(): Set<String> = Models.ALL.filter { isReady(it) }.map { it.id }.toSet()
 
     /** Everything a model takes: the file, any partial download, and the runtime's cache. */
-    fun bytesOnDisk(): Long = Models.ALL.sumOf { s ->
-        fileFor(s).length() + partFor(s).length() +
-            File(cacheRoot, s.id).walkBottomUp().filter { it.isFile }.sumOf { it.length() }
-    }
+    fun bytesOnDisk(): Long = Models.ALL.sumOf { bytesFor(it) }
 
     /**
      * Downloads a model, resuming from an interrupted `.part` file when there is one.
@@ -249,7 +250,7 @@ class ModelStore(context: Context) {
         try {
             // The partial belongs to whatever file the catalogue pointed at when it was
             // started. If the app has since pinned a different file, start clean.
-            if (partial.exists() && stamp.takeIf { it.exists() }?.readText()?.trim() != s.sha256) {
+            if (partial.exists() && stamp.exists() && stamp.readText().trim() != s.sha256) {
                 partial.delete()
             }
             stamp.writeText(s.sha256)
@@ -287,7 +288,7 @@ class ModelStore(context: Context) {
                             if (!outcome.resuming) partial.delete()
                             val remaining = outcome.total - outcome.start
                             if (!hasRoomFor(remaining, s)) {
-                                emit(failed(text(R.string.download_not_enough_space, remaining / 1024 / 1024)))
+                                emit(failed(text(R.string.download_not_enough_space, android.text.format.Formatter.formatShortFileSize(app, remaining))))
                                 return@flow
                             }
                             emit(Download.Progress(outcome.start, outcome.total))
@@ -339,6 +340,17 @@ class ModelStore(context: Context) {
             emit(failed(humanise(e)))
         }
     }.flowOn(Dispatchers.IO)
+
+    /** Everything on disk for [s]: the file, any partial download, and the runtime's cache. */
+    fun bytesFor(s: ModelSpec): Long =
+        fileFor(s).length() + partFor(s).length() +
+            File(cacheRoot, s.id).walkBottomUp().filter { it.isFile }.sumOf { it.length() }
+
+    /** Throws away an unfinished download. */
+    fun removePartial(s: ModelSpec) {
+        partFor(s).delete()
+        File(dir, "${s.fileName}.part.sha256").delete()
+    }
 
     fun delete(s: ModelSpec = spec) {
         fileFor(s).delete()

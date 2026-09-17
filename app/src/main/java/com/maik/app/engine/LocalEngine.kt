@@ -132,20 +132,32 @@ object LocalEngine {
             return built
         }
 
-        if (!preferGpu) return Pair(build(cpu), Backend.CPU)
+        // Android kills a process that runs out of memory without an exception, so the
+        // marker covers the CPU load too: otherwise a model too big for the phone would
+        // crash the app again on every launch.
+        if (!preferGpu) {
+            store.beginRiskyLoad(gpu = false)
+            try {
+                return Pair(build(cpu), Backend.CPU)
+            } finally {
+                store.endRiskyLoad()
+            }
+        }
 
-        store.beginRiskyLoad()
+        store.beginRiskyLoad(gpu = true)
         return try {
             val gpu = build(LmBackend.GPU())
             store.endRiskyLoad()
             Pair(gpu, Backend.GPU)
         } catch (e: Exception) {
-            store.endRiskyLoad()
+            store.beginRiskyLoad(gpu = false)
             try {
                 Pair(build(cpu), Backend.CPU)
             } catch (cpu: Throwable) {
                 cpu.addSuppressed(e)
                 throw cpu
+            } finally {
+                store.endRiskyLoad()
             }
         }
     }

@@ -113,6 +113,9 @@ class DownloadService : Service() {
                         DownloadBus.running.value = false
                         DownloadBus.progress.value = null
                         DownloadBus.events.tryEmit(event)
+                        // The progress notification disappears with the service; leave one
+                        // behind that says how it ended, for whoever locked the phone.
+                        if (event !is Download.Failed || !event.cancelled) notifyFinished(spec.label, event)
                         stopSelf()
                     }
                 }
@@ -152,6 +155,34 @@ class DownloadService : Service() {
 
     /* ---------- notification ---------- */
 
+    private fun notifyFinished(label: String, event: Download) {
+        val open = PendingIntent.getActivity(
+            this,
+            2,
+            Intent(this, MainActivity::class.java).putExtra(MainActivity.EXTRA_OPEN, MainActivity.OPEN_DOWNLOAD),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val (title, body) = when (event) {
+            is Download.Done -> getString(R.string.download_finished_title, label) to getString(R.string.download_finished_body)
+            is Download.Failed -> getString(R.string.download_stopped_title, label) to event.reason
+            else -> return
+        }
+        notify(
+            FINISHED_NOTIFICATION_ID,
+            NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                .setSmallIcon(
+                    if (event is Download.Done) android.R.drawable.stat_sys_download_done
+                    else android.R.drawable.stat_notify_error
+                )
+                .setContentIntent(open)
+                .setAutoCancel(true)
+                .build()
+        )
+    }
+
     private fun manager() =
         getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -164,9 +195,11 @@ class DownloadService : Service() {
         manager().createNotificationChannel(channel)
     }
 
-    private fun notify(notification: Notification) {
+    private fun notify(notification: Notification) = notify(NOTIFICATION_ID, notification)
+
+    private fun notify(id: Int, notification: Notification) {
         // Silently ignored if the user denied notifications; the download continues.
-        runCatching { manager().notify(NOTIFICATION_ID, notification) }
+        runCatching { manager().notify(id, notification) }
     }
 
     private fun buildNotification(
@@ -192,7 +225,11 @@ class DownloadService : Service() {
         val mb = if (verifying) {
             getString(R.string.download_verifying)
         } else if (total > 0) {
-            getString(R.string.download_notification_progress, bytes / 1024 / 1024, total / 1024 / 1024)
+            getString(
+                R.string.download_notification_progress,
+                android.text.format.Formatter.formatShortFileSize(this, bytes),
+                android.text.format.Formatter.formatShortFileSize(this, total)
+            )
         } else {
             getString(R.string.download_notification_starting)
         }
@@ -217,6 +254,7 @@ class DownloadService : Service() {
         const val ACTION_CANCEL = "com.maik.app.CANCEL_DOWNLOAD"
         private const val EXTRA_MODEL_ID = "model_id"
         private const val NOTIFY_EVERY_MS = 1_000L
+        private const val FINISHED_NOTIFICATION_ID = 43
 
         fun start(context: Context, modelId: String) {
             val intent = Intent(context, DownloadService::class.java)

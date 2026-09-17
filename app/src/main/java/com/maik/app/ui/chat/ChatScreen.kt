@@ -34,6 +34,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.maik.app.*
@@ -59,8 +62,15 @@ internal fun ChatScreen(vm: ChatViewModel) {
     val done = tick()
     // A soft tick when a reply lands, so you can look away while it writes.
     var wasBusy by remember { mutableStateOf(vm.busy) }
+    val view = androidx.compose.ui.platform.LocalView.current
+    val replyReady = stringResource(R.string.chat_reply_ready)
     LaunchedEffect(vm.busy) {
-        if (wasBusy && !vm.busy) done()
+        if (wasBusy && !vm.busy) {
+            done()
+            // TalkBack users otherwise hear nothing when an answer finishes.
+            @Suppress("DEPRECATION")
+            view.announceForAccessibility(replyReady)
+        }
         wasBusy = vm.busy
     }
     val count = convo.messages.size
@@ -118,13 +128,52 @@ internal fun ChatScreen(vm: ChatViewModel) {
         ) {
             // Items are listed newest first, because the list is drawn bottom-up.
             val last = convo.messages.lastOrNull()
-            if (!vm.busy && last?.fromUser == false && vm.stage is Stage.Ready) {
+            if (!vm.busy && last != null && vm.stage is Stage.Ready) {
                 item(key = "again", contentType = 3) {
                     Box(Modifier.animateItem(fadeInSpec = tween(Motion.NORMAL, delayMillis = 120), placementSpec = null)) {
-                        QuietAction(if (last.isError) stringResource(R.string.chat_try_again) else stringResource(R.string.chat_regenerate)) {
-                            buzz()
-                            vm.regenerate()
+                        when {
+                            last.fromUser -> QuietAction(stringResource(R.string.chat_get_an_answer)) {
+                                buzz()
+                                vm.answerLast()
+                            }
+
+                            last.truncated && !last.isError -> Row(
+                                Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally)
+                            ) {
+                                QuietAction(stringResource(R.string.chat_continue), fill = false) {
+                                    buzz()
+                                    vm.continueReply()
+                                }
+                                QuietAction(stringResource(R.string.chat_regenerate), fill = false) {
+                                    buzz()
+                                    vm.regenerate()
+                                }
+                            }
+
+                            else -> QuietAction(if (last.isError) stringResource(R.string.chat_try_again) else stringResource(R.string.chat_regenerate)) {
+                                buzz()
+                                vm.regenerate()
+                            }
                         }
+                    }
+                }
+            }
+
+            // Heat is about the reply just written, so the notice sits with it, at the
+            // bottom, and goes away when tapped.
+            if (vm.stoppedForHeat) {
+                item(key = "heat") {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(role = Role.Button, onClickLabel = stringResource(R.string.chat_heat_dismiss)) {
+                                vm.dismissHeatNotice()
+                            }
+                            .padding(vertical = 8.dp)
+                    ) {
+                        ContextNotice(stringResource(R.string.chat_maik_stopped_early_because_the))
                     }
                 }
             }
@@ -144,7 +193,12 @@ internal fun ChatScreen(vm: ChatViewModel) {
                             },
                             label = "live"
                         ) { waiting ->
-                            if (waiting) TypingDots() else Bubble(Message(text, fromUser = false))
+                            if (waiting) {
+                                val answering = stringResource(R.string.chat_maik_is_answering)
+                                Box(Modifier.semantics { contentDescription = answering }) { TypingDots() }
+                            } else {
+                                Bubble(Message(text, fromUser = false))
+                            }
                         }
                     }
                 }
@@ -165,13 +219,6 @@ internal fun ChatScreen(vm: ChatViewModel) {
                 }
             }
 
-            if (vm.stoppedForHeat) {
-                item(key = "heat") {
-                    ContextNotice(
-                        stringResource(R.string.chat_maik_stopped_early_because_the)
-                    )
-                }
-            }
             if (vm.dropped > 0) {
                 item(key = "dropped") { ContextNotice(vm.dropped) }
             }
@@ -230,7 +277,7 @@ internal fun ChatScreen(vm: ChatViewModel) {
                         shareText(context, msg.text)
                         menuFor = null
                     })
-                    if (msg.fromUser && !vm.busy) {
+                    if (msg.fromUser && !vm.busy && vm.stage is Stage.Ready) {
                         add(SheetAction(stringResource(R.string.chat_edit_and_send_again)) {
                             editing = index
                             menuFor = null
@@ -282,7 +329,7 @@ internal fun ChatScreen(vm: ChatViewModel) {
         }
 
         vm.pendingSwitch?.let { choice ->
-            if (choice.chatId == convo.id) ModelSwitchDialog(choice, vm::resolveSwitch)
+            if (choice.chatId == convo.id) ModelSwitchDialog(choice, onDismiss = vm::dismissSwitch, onChoose = vm::resolveSwitch)
         }
 
         Composer(
@@ -290,6 +337,11 @@ internal fun ChatScreen(vm: ChatViewModel) {
             onValueChange = { input = it },
             busy = vm.busy,
             ready = vm.stage is Stage.Ready,
+            waitingHint = when (vm.stage) {
+                is Stage.NeedsModel -> stringResource(R.string.chat_hint_needs_model)
+                is Stage.Broken -> stringResource(R.string.chat_hint_broken)
+                else -> stringResource(R.string.chat_waiting_for_the_model)
+            },
             onSend = {
                 buzz()
                 vm.send(input)
@@ -475,7 +527,7 @@ private fun ModelPicker(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .clickable { onPick(model) }
+                            .selectable(selected = selected, role = Role.RadioButton) { onPick(model) }
                             .padding(vertical = 12.dp, horizontal = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -495,7 +547,7 @@ private fun ModelPicker(
                         )
                         Spacer(Modifier.weight(1f))
                         Text(
-                            if (model.id in installed) "ready" else stringResource(R.string.chat_mb, model.approxMb),
+                            if (model.id in installed) stringResource(R.string.chat_model_on_phone) else stringResource(R.string.chat_mb, fileSize(model.approxBytes)),
                             style = MaterialTheme.typography.labelSmall,
                             color = if (model.id in installed) scheme.primary
                             else scheme.onSurfaceVariant.copy(alpha = 0.64f)
@@ -545,10 +597,10 @@ private fun EditMessageDialog(initial: String, onSend: (String) -> Unit, onDismi
 
 /** Shown when a chat was held with a different model from the one loaded. */
 @Composable
-private fun ModelSwitchDialog(choice: ModelSwitch, onChoose: (Boolean) -> Unit) {
+private fun ModelSwitchDialog(choice: ModelSwitch, onDismiss: () -> Unit, onChoose: (Boolean) -> Unit) {
     val scheme = MaterialTheme.colorScheme
     AlertDialog(
-        onDismissRequest = { onChoose(false) },
+        onDismissRequest = onDismiss,
         containerColor = scheme.surfaceVariant,
         title = { DialogTitle(stringResource(R.string.chat_this_chat_used, choice.chatModel.label)) },
         text = {

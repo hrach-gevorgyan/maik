@@ -20,14 +20,14 @@
     <string name="chat_everything_after_this_message_will">Everything after this message will be replaced by a new answer.</string>
     <string name="chat_everything_here_stays_on_this">Everything here stays on this phone. You can start as soon as %1$s is ready.</string>
     <string name="chat_is_loaded_right_now_switching">%1$s is loaded right now. Switching reloads the model, which takes a moment.</string>
-    <string name="chat_isn_t_on_this_phone">%1$s isn\'t on this phone yet.</string>
+    <string name="chat_isn_t_on_this_phone">%1$s isn\'t on this phone.</string>
     <string name="chat_jump_to_latest">Jump to latest</string>
     <string name="chat_keep">Keep %1$s</string>
     <string name="chat_loading">Loading %1$s</string>
     <string name="chat_maik_is_answering">maik is answering…</string>
     <string name="chat_maik_s_reply">maik\'s reply</string>
     <string name="chat_maik_stopped_early_because_the">maik stopped early because the phone was getting hot. Ask again in a moment, or turn off \"Keep the phone cool\" in Settings.</string>
-    <string name="chat_mb">%1$s MB</string>
+    <string name="chat_mb">%1$s</string>
     <string name="chat_message_options">Message options</string>
     <string name="chat_press_and_hold_to_select">Press and hold to select</string>
     <string name="chat_regenerate">Regenerate</string>
@@ -40,7 +40,7 @@
     <string name="chat_switch_to">Switch to %1$s</string>
     <string name="chat_this_chat_used">This chat used %1$s</string>
     <string name="chat_try_again">Try again</string>
-    <string name="chat_use_cpu_instead">Use CPU instead</string>
+    <string name="chat_use_cpu_instead">Use the processor instead</string>
     <string name="chat_view">View</string>
     <string name="chat_waiting_for_the_model">Waiting for the model…</string>
     <string name="chat_your_message">Your message</string>
@@ -64,16 +64,16 @@ Everything you start stays on this phone.</string>
     <string name="settings_a_short_tap_when_you">A short tap when you send, stop, or press and hold.</string>
     <string name="settings_a_standing_note_handed_to">A standing note handed to the model before every conversation. It sets the tone and the ground rules, so you don\'t have to repeat yourself. Changes apply to your next message.</string>
     <string name="settings_about">About</string>
-    <string name="settings_answers_with_half_the_processor">Uses fewer processor cores, keeps replies to a few paragraphs, and slows down before the phone overheats. Turn it off for the fastest, longest replies.</string>
+    <string name="settings_answers_with_half_the_processor">Uses fewer processor cores, keeps replies to a few paragraphs, and won\'t start answering while the phone is overheating. Changing this restarts the model, which takes a few seconds.</string>
     <string name="settings_appearance">Appearance</string>
     <string name="settings_behaviour">Behaviour</string>
     <string name="settings_cancel">Cancel</string>
     
     <string name="settings_context">CONTEXT</string>
-    <string name="settings_cool"> · cool</string>
-    <string name="settings_cpu">CPU</string>
-    <string name="settings_currently_running_on_the_cpu">Currently running on the CPU.</string>
-    <string name="settings_currently_running_on_the_gpu">Currently running on the GPU.</string>
+    <string name="settings_cool"> · Cool mode</string>
+    <string name="settings_cpu">Processor</string>
+    <string name="settings_currently_running_on_the_cpu">Running on the processor.</string>
+    <string name="settings_currently_running_on_the_gpu">Running on the graphics chip.</string>
     <string name="settings_dark">Dark</string>
     <string name="settings_dark_is_the_design_maik">maik follows your phone unless you choose otherwise. Dark is easier on the eyes at night; light reads better outdoors.</string>
     <string name="settings_delete">Delete %1$s?</string>
@@ -84,22 +84,22 @@ Everything you start stays on this phone.</string>
     <string name="settings_download">Download</string>
     <string name="settings_each_model_carries_the_licence">Each model carries the licence of whoever trained it; read it before using a model\'s output commercially.</string>
     <string name="settings_follow_the_system">Follow the system</string>
-    <string name="settings_gpu">GPU</string>
+    <string name="settings_gpu">Graphics chip</string>
     <string name="settings_in_use">%1$s in use</string>
     <string name="settings_in_use_2">IN USE</string>
     <string name="settings_instructions">Instructions</string>
-    <string name="settings_k_context">%1$s · %2$sK context</string>
+    <string name="settings_k_context">%1$s · keeps about %2$s words in mind</string>
     <string name="settings_licences">Licences</string>
     <string name="settings_light">Light</string>
     <string name="settings_maik_runs_its_model_locally">maik runs its model locally with Google\'s LiteRT-LM runtime. The only network request it ever makes is the one that downloads a model. Your conversations never leave this device, and there is no account, no key and no telemetry.</string>
     <string name="settings_manage_models">Manage models</string>
-    <string name="settings_mb">%1$s MB</string>
-    <string name="settings_mb_of_models">%1$s MB of models</string>
-    <string name="settings_mb_of_models_on_this">%1$s MB of models on this device.</string>
+    <string name="settings_mb">%1$s</string>
+    <string name="settings_mb_of_models">%1$s of models</string>
+    <string name="settings_mb_of_models_on_this">%1$s of models on this phone.</string>
     <string name="settings_model">MODEL</string>
     <string name="settings_model_downloads_from_huggingface_co">Model downloads from huggingface.co, and nothing else. No analytics, no crash reports, no account. Chats and settings are stored only on this phone, and Android\'s own backup can copy them to your Google account if you have backup switched on — model files are excluded.</string>
     <string name="settings_models">Models</string>
-    <string name="settings_much_faster_at_reading_your">Reads your message several times faster, but writes the reply using more battery and more heat than the processor does. Off by default. If the app ever crashes while loading, this turns itself off.</string>
+    <string name="settings_much_faster_at_reading_your">Reads your message faster, but writes replies with more battery and heat than the processor. If maik ever closes while starting on it, this turns itself off. Changing this restarts the model, which takes a few seconds.</string>
     <string name="settings_new_chats_use_the_model">New chats use the model marked in use. Each model is downloaded once and works offline after that.</string>
     <string name="settings_no_model_is_loaded_yet">No model is loaded yet.</string>
     <string name="settings_nothing_downloaded_yet">Nothing downloaded yet</string>
@@ -110,9 +110,9 @@ Everything you start stays on this phone.</string>
     <string name="settings_settings">Settings</string>
     <string name="settings_source_code_on_github">Source code on GitHub</string>
     <string name="settings_storage">Storage</string>
-    <string name="settings_this_frees_mb_your_chats">This frees %1$s MB. Your chats stay; you would need to download the model again to use it.</string>
+    <string name="settings_this_frees_mb_your_chats">This frees %1$s. Your chats stay; you would need to download the model again to use it.</string>
     <string name="settings_this_phone_may_not_have">This phone may not have enough memory to run it smoothly.</string>
-    <string name="settings_time_to_first_word_and">Time to first word and words per second under each reply. For troubleshooting.</string>
+    <string name="settings_time_to_first_word_and">How long until the first word and how fast the reply was written, under each reply. For troubleshooting.</string>
     <string name="settings_tokens">%1$s tokens</string>
     <string name="settings_use_for_new_chats">Use for new chats</string>
     <string name="settings_version">VERSION</string>
@@ -138,11 +138,9 @@ Everything you start stays on this phone.</string>
     <string name="setup_it_lives_on_this_phone">It lives on this phone now. You can turn the network off and it will keep answering.</string>
     <string name="setup_keeps_going_if_you_lock">Keeps going if you lock the screen or leave the app.</string>
     <string name="setup_maik_carries_its_own_brain">maik carries its own brain. Fetch it once, then it works forever with the network off.</string>
-    <string name="setup_mb">%1$s / %2$s MB</string>
-    <string name="setup_mb_once">%1$s MB, once</string>
-    <string name="setup_mb_takes_a_while_a">%1$s MB takes a while. A notification lets you watch it fill up and cancel it without coming back here — and it is the only notification maik will ever post.
-
-Say no and the download still runs exactly the same.</string>
+    <string name="setup_mb">%1$s of %2$s</string>
+    <string name="setup_mb_once">%1$s, once</string>
+    <string name="setup_mb_takes_a_while_a">%1$s takes a while. A notification lets you watch it fill up and cancel it without coming back here — and maik only ever notifies you about downloads. Say no and the download still runs exactly the same.</string>
     <string name="setup_model">MODEL</string>
     <string name="setup_not_now">Not now</string>
     <string name="setup_show_details">Show details</string>
@@ -152,7 +150,7 @@ Say no and the download still runs exactly the same.</string>
     <string name="setup_start_chatting">Start chatting</string>
     <string name="setup_starting">Starting…</string>
     <string name="setup_that_didn_t_work">That didn\'t work</string>
-    <string name="setup_this_will_pull_mb_over">This will pull %1$s MB over a metered connection. That is a real hole in most data plans.</string>
+    <string name="setup_this_will_pull_mb_over">This will use %1$s of mobile data. That\'s a lot for most plans.</string>
     <string name="setup_try_a_different_model">Try a different model</string>
     <string name="setup_try_again">Try again</string>
     <string name="setup_wait_for_wi_fi">Wait for Wi-Fi</string>
@@ -161,7 +159,7 @@ Say no and the download still runs exactly the same.</string>
     <string name="setup_you_are_not_on_wi">You are not on Wi-Fi</string>
     <string name="settings_keep_the_phone_cool">Keep the phone cool</string>
     <string name="settings_show_speed">Show speed</string>
-    <string name="settings_use_the_gpu">Use the GPU</string>
+    <string name="settings_use_the_gpu">Use the graphics chip</string>
     <string name="chat_new_chat_title">New chat</string>
     <string name="model_still_downloading">%1$s is still downloading. Wait for it, or cancel it first.</string>
     <string name="model_file_damaged">The %1$s file is damaged. Downloading it again should fix this.</string>
@@ -172,7 +170,7 @@ Say no and the download still runs exactly the same.</string>
     <string name="model_blurb_lfm">A third of the download, quick to answer, and easy on the battery.</string>
     <string name="download_server_answered">The server answered %1$s.</string>
     <string name="download_cannot_continue">The server couldn\'t continue the download. Try again.</string>
-    <string name="download_not_enough_space">Not enough free space — this needs %1$d MB more.</string>
+    <string name="download_not_enough_space">Not enough free space. Free up %1$s on this phone, then try again.</string>
     <string name="download_interrupted">The download was interrupted. It will continue from where it stopped.</string>
     <string name="download_corrupted">The download was corrupted. Try again.</string>
     <string name="download_could_not_save">Could not save the downloaded file.</string>
@@ -187,11 +185,11 @@ Say no and the download still runs exactly the same.</string>
     <string name="download_not_allowed_now">Android won\'t allow a download right now. Try again in a moment.</string>
     <string name="download_notification_title">Downloading %1$s</string>
     <string name="download_notification_starting">Starting…</string>
-    <string name="download_notification_progress">%1$d / %2$d MB</string>
+    <string name="download_notification_progress">%1$s of %2$s</string>
     <string name="download_notification_cancel">Cancel</string>
     <string name="download_channel_name">Model download</string>
     <string name="download_channel_detail">Shows progress while maik fetches its model.</string>
-    <string name="settings_heavy_model">Warms the phone up: it reads %1$s MB for every word it writes.</string>
+    <string name="settings_heavy_model">Warms the phone up more than the smaller model while it answers.</string>
 
     <plurals name="chat_earlier_messages_dropped">
         <item quantity="one">%1$d earlier message no longer fits in the model\'s memory</item>
@@ -208,7 +206,7 @@ Say no and the download still runs exactly the same.</string>
     <string name="settings_vibration">Vibration</string>
     <string name="settings_instructions_default">Default</string>
     <string name="settings_instructions_saved">Instructions saved. They apply from your next message.</string>
-    <string name="settings_model_deleted">%1$s deleted. %2$d MB freed.</string>
+    <string name="settings_model_deleted">%1$s deleted. %2$s freed.</string>
     <string name="settings_wait_for_load">You can delete a model once the current one has finished loading.</string>
     <string name="list_clear_search">Clear search</string>
     <string name="list_search_label">Search conversations</string>
@@ -230,4 +228,39 @@ Say no and the download still runs exactly the same.</string>
     <string name="download_disk_full">The phone ran out of space. Free some up, then retry to continue from where it stopped.</string>
     <string name="setup_verifying_title">Checking the download</string>
     <string name="setup_verifying_detail">Making sure every byte arrived intact. This takes a little while for a large model.</string>
+    <string name="time_now">now</string>
+    <plurals name="time_minutes">
+        <item quantity="one">%1$dm</item>
+        <item quantity="other">%1$dm</item>
+    </plurals>
+    <plurals name="time_hours">
+        <item quantity="one">%1$dh</item>
+        <item quantity="other">%1$dh</item>
+    </plurals>
+    <plurals name="time_days">
+        <item quantity="one">%1$dd</item>
+        <item quantity="other">%1$dd</item>
+    </plurals>
+    <string name="chat_gpu_crashed">maik closed while starting on the graphics chip last time, so it\'s using the processor now.</string>
+    <string name="model_crashed_last_time">maik closed while loading %1$s last time — the phone may not have enough free memory. Close other apps and try again, or choose a smaller model.</string>
+    <string name="chat_reply_failed">maik couldn\'t finish that answer. Try again.</string>
+    <string name="chat_get_an_answer">Get an answer</string>
+    <string name="chat_continue">Continue</string>
+    <string name="chat_continue_prompt">Please continue.</string>
+    <string name="chat_truncated_note">Kept short to keep the phone cool</string>
+    <string name="chat_heat_dismiss">Dismiss</string>
+    <string name="chat_hint_needs_model">Download a model to start</string>
+    <string name="chat_hint_broken">Something went wrong — see above</string>
+    <string name="chat_writing">Writing…</string>
+    <string name="download_finished_title">%1$s is ready</string>
+    <string name="download_finished_body">Tap to start chatting.</string>
+    <string name="download_stopped_title">%1$s download stopped</string>
+    <string name="settings_remove_partial">Remove partial download</string>
+    <string name="settings_partial_present">%1$s of %2$s already downloaded.</string>
+    <string name="setup_continue_with_partial">Continue download · %1$s of %2$s already here</string>
+    <string name="chat_model_on_phone">On this phone</string>
+    <string name="chat_copy_code">Copy code</string>
+    <string name="chat_reply_ready">Reply ready</string>
+    <string name="chat_message_box">Message</string>
+    <string name="chat_speed_line">%1$.1f s to first word · %2$.0f tokens a second · %3$s</string>
 </resources>
