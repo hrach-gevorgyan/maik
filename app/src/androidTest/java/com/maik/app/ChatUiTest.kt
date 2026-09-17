@@ -36,7 +36,14 @@ class ChatUiTest {
     fun a_reply_can_be_long_pressed_for_its_menu() {
         var pressed = false
         rule.setContent {
-            MaikTheme { Bubble(Message("Rome is the capital.", fromUser = false)) { pressed = true } }
+            // Named, because the search-match argument comes last: a trailing lambda
+            // would be handed to that instead of to the long press.
+            MaikTheme {
+                Bubble(
+                    Message("Rome is the capital.", fromUser = false),
+                    onLongPress = { pressed = true }
+                )
+            }
         }
         rule.onNodeWithText("Rome is the capital.").performTouchInput { longClick() }
         rule.waitForIdle()

@@ -27,9 +27,11 @@ jobs:
         run: python tools/verify_models.py
 
       # Lint fails the build on errors — it caught a format string that would have
-      # crashed the chat while a download was running.
+      # crashed the chat while a download was running. The instrumentation tests are
+      # compiled here too, without an emulator: they broke once and nothing noticed
+      # until a release was already failing.
       - name: Test, lint and assemble
-        run: ./gradlew test lintDebug lintRelease assembleDebug assembleRelease --no-daemon
+        run: ./gradlew test lintDebug lintRelease assembleDebug assembleRelease assembleDebugAndroidTest --no-daemon
 
       - name: Publish lint report
         if: always()
