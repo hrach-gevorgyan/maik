@@ -104,6 +104,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     var useGpu by mutableStateOf(false)
         private set
 
+    /** Eases off when the phone gets warm. */
+    var keepCool by mutableStateOf(true)
+        private set
+
+    /** True while Android reports the phone is throttling, so the chat can say so. */
+    var phoneIsWarm by mutableStateOf(false)
+        private set
+
+    /** Set when a reply was cut short to let the phone cool down. */
+    var stoppedForHeat by mutableStateOf(false)
+        private set
+
     /** Shows the speed line under replies. Off unless asked for. */
     var debugMode by mutableStateOf(false)
         private set
@@ -187,6 +199,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         themeMode = store.themeMode
         hapticsEnabled = store.haptics
         debugMode = store.debug
+        keepCool = store.keepCool
+        Thermal.watch(app.applicationContext)
+        watchHeat()
 
         // The process died during the last load. The GPU is the prime suspect: it can
         // crash natively, and no error handling sees that.
@@ -340,7 +355,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     fun newChat() {
         if (busy) stop()
         val model = LocalEngine.loadedId?.let { id -> Models.ALL.firstOrNull { it.id == id } } ?: preferred()
-        val fresh = Conversation(id = UUID.randomUUID().toString(), title = "New chat", modelId = model.id)
+        val fresh = Conversation(id = UUID.randomUUID().toString(), title = text(R.string.chat_new_chat_title), modelId = model.id)
         conversations.add(0, fresh)
         currentId = fresh.id
         dropped = 0
@@ -424,6 +439,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         hapticsEnabled = enabled
     }
 
+    fun updateKeepCool(enabled: Boolean) {
+        store.setKeepCool(enabled)
+        keepCool = enabled
+        // The thread count is fixed when the engine is built, so it has to be rebuilt.
+        if (store.isReady(target) && (stage is Stage.Ready || stage is Stage.Broken)) {
+            loadEngine(target, force = true)
+        }
+    }
+
     fun updateDebug(enabled: Boolean) {
         store.setDebug(enabled)
         debugMode = enabled
@@ -496,7 +520,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val other = DownloadBus.modelId.value
         if (DownloadBus.running.value && other != null && other != target.id) {
             stage = Stage.Broken(
-                "${Models.byId(other).label} is still downloading. Wait for it, or cancel it first.",
+                text(R.string.model_still_downloading, Models.byId(other).label),
                 "",
                 Fix.RESUME_DOWNLOAD
             )
@@ -513,6 +537,26 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 .setAction(DownloadService.ACTION_CANCEL)
         )
         stage = Stage.NeedsModel
+    }
+
+    /**
+     * Watches the phone's own thermal reading. A phone that is throttling is already
+     * uncomfortable to hold, and a long reply is the one thing maik can give back.
+     */
+    private fun watchHeat() {
+        viewModelScope.launch {
+            Thermal.status.collect { status ->
+                phoneIsWarm = Thermal.isWarm(status)
+                if (keepCool && Thermal.isHot(status) && busy) {
+                    stoppedForHeat = true
+                    stop()
+                }
+            }
+        }
+    }
+
+    fun dismissHeatNotice() {
+        stoppedForHeat = false
     }
 
     private fun watchDownloads() {
@@ -592,7 +636,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 previous?.join()
                 // The conversation belongs to the engine being replaced.
                 dropSession()
-                LocalEngine.load(store, model, useGpu)
+                LocalEngine.load(store, model, useGpu, keepCool)
             }
             // A newer request replaced this one; that load will set the stage.
             if (token != loadToken) return@launch
@@ -616,19 +660,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val damaged = withContext(Dispatchers.IO) { store.check(model) } != null
         return when {
             damaged -> Stage.Broken(
-                "The ${model.label} file is damaged. Downloading it again should fix this.",
+                text(R.string.model_file_damaged, model.label),
                 detail,
                 Fix.REDOWNLOAD
             )
 
             e is OutOfMemoryError || detail.contains("memory", ignoreCase = true) -> Stage.Broken(
-                "There isn't enough free memory to load ${model.label}. " +
-                    "Close other apps, or pick a smaller model.",
+                text(R.string.model_not_enough_memory, model.label),
                 detail,
                 Fix.RETRY_LOAD
             )
 
-            else -> Stage.Broken("${model.label} could not be loaded.", detail, Fix.RETRY_LOAD)
+            else -> Stage.Broken(text(R.string.model_could_not_be_loaded, model.label), detail, Fix.RETRY_LOAD)
         }
     }
 
@@ -669,12 +712,13 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val convo = conversations.firstOrNull { it.id == conversationId } ?: return
         val model = modelFor(convo)
         if (stage !is Stage.Ready || LocalEngine.loadedId != model.id) {
-            finish(conversationId, "${model.label} isn't loaded yet.", isError = true)
+            finish(conversationId, text(R.string.model_not_loaded_yet, model.label), isError = true)
             return
         }
 
         busy = true
         streaming = ""
+        stoppedForHeat = false
         val turn = ++generation
         val prompt = convo.messages.last().text
         val previous = job
@@ -785,6 +829,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 initialMessages = recent.map {
                     if (it.fromUser) LmMessage.user(it.text) else LmMessage.model(it.text)
                 },
+                // A reply that runs for minutes is usually the model looping, and it is
+                // the worst case for heat. Half the window is more than any answer needs.
+                maxOutputToken = model.contextTokens / 2,
                 samplerConfig = SamplerConfig(
                     topK = 40,
                     topP = 0.95,
@@ -846,6 +893,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /* ---------- plumbing ---------- */
+
+    /** A translated string. The view model has no composable scope, so it asks Android. */
+    private fun text(id: Int, vararg args: Any): String =
+        getApplication<Application>().getString(id, *args)
 
     private inline fun replace(id: String, transform: (Conversation) -> Conversation) {
         val index = conversations.indexOfFirst { it.id == id }

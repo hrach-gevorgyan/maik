@@ -40,6 +40,7 @@ object LocalEngine {
 
     private var engine: Engine? = null
     private var loadedGpu: Boolean? = null
+    private var loadedCool: Boolean? = null
 
     @Volatile
     var loadedId: String? = null
@@ -55,16 +56,17 @@ object LocalEngine {
      * The work runs in [scope], so a caller that goes away mid-load does not abandon a
      * half-built engine: the load finishes and the model stays warm for next time.
      */
-    suspend fun load(store: ModelStore, spec: ModelSpec, preferGpu: Boolean): Backend =
+    suspend fun load(store: ModelStore, spec: ModelSpec, preferGpu: Boolean, keepCool: Boolean = true): Backend =
         scope.async(lifecycle) {
-            if (engine != null && loadedId == spec.id && loadedGpu == preferGpu) {
+            if (engine != null && loadedId == spec.id && loadedGpu == preferGpu && loadedCool == keepCool) {
                 return@async backend
             }
             closeNow()
-            val (opened, used) = open(store, spec, preferGpu)
+            val (opened, used) = open(store, spec, preferGpu, keepCool)
             engine = opened
             loadedId = spec.id
             loadedGpu = preferGpu
+            loadedCool = keepCool
             backend = used
             used
         }.await()
@@ -88,6 +90,7 @@ object LocalEngine {
         engine = null
         loadedId = null
         loadedGpu = null
+        loadedCool = null
         backend = Backend.NONE
     }
 
@@ -96,7 +99,10 @@ object LocalEngine {
      * a crash no `catch` can see — so a breadcrumb is written around the attempt, and
      * finding it at the next launch turns the GPU off.
      */
-    private fun open(store: ModelStore, spec: ModelSpec, preferGpu: Boolean): Pair<Engine, Backend> {
+    private fun open(store: ModelStore, spec: ModelSpec, preferGpu: Boolean, keepCool: Boolean): Pair<Engine, Backend> {
+        // Every busy core is heat. Half of them answers a little slower and keeps the
+        // phone comfortable to hold, which matters more than tokens per second.
+        val cpu = LmBackend.CPU(Thermal.threadsFor(keepCool))
         fun build(backend: LmBackend): Engine {
             val built = Engine(
                 EngineConfig(
@@ -117,7 +123,7 @@ object LocalEngine {
             return built
         }
 
-        if (!preferGpu) return Pair(build(LmBackend.CPU()), Backend.CPU)
+        if (!preferGpu) return Pair(build(cpu), Backend.CPU)
 
         store.beginRiskyLoad()
         return try {
@@ -127,7 +133,7 @@ object LocalEngine {
         } catch (e: Exception) {
             store.endRiskyLoad()
             try {
-                Pair(build(LmBackend.CPU()), Backend.CPU)
+                Pair(build(cpu), Backend.CPU)
             } catch (cpu: Throwable) {
                 cpu.addSuppressed(e)
                 throw cpu

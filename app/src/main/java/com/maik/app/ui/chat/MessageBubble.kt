@@ -22,11 +22,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.maik.app.*
+import com.maik.app.R
 import com.maik.app.data.*
 import com.maik.app.engine.*
 import com.maik.app.ui.components.*
@@ -67,7 +69,7 @@ internal fun Bubble(msg: Message, onLongPress: (() -> Unit)? = null) {
                 .background(bg)
                 .combinedClickable(
                     onClick = {},
-                    onLongClickLabel = "Message options",
+                    onLongClickLabel = stringResource(R.string.chat_message_options),
                     onLongClick = onLongPress?.let {
                         {
                             buzz()
@@ -107,7 +109,7 @@ internal fun SelectableMessageSheet(text: String, onDismiss: () -> Unit) {
                 .padding(bottom = 32.dp)
         ) {
             Text(
-                "Press and hold to select",
+                stringResource(R.string.chat_press_and_hold_to_select),
                 style = MaterialTheme.typography.labelSmall,
                 color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
             )
@@ -125,7 +127,7 @@ internal fun shareText(context: Context, text: String) {
         type = "text/plain"
         putExtra(android.content.Intent.EXTRA_TEXT, text)
     }
-    runCatching { context.startActivity(android.content.Intent.createChooser(intent, "Share")) }
+    runCatching { context.startActivity(android.content.Intent.createChooser(intent, context.getString(R.string.chat_share))) }
 }
 
 internal fun copyToClipboard(context: Context, text: String) {
@@ -133,6 +135,6 @@ internal fun copyToClipboard(context: Context, text: String) {
     clipboard?.setPrimaryClip(ClipData.newPlainText("maik", text))
     // Android 13+ shows its own copy confirmation; a second one would be noise.
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-        Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, context.getString(R.string.chat_copied), Toast.LENGTH_SHORT).show()
     }
 }

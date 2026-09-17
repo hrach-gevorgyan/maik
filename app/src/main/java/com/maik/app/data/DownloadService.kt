@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.maik.app.*
+import com.maik.app.R
 import com.maik.app.engine.*
 import com.maik.app.ui.chat.*
 import com.maik.app.ui.components.*
@@ -73,7 +74,7 @@ class DownloadService : Service() {
         if (job?.isActive == true) {
             // One download at a time; say so instead of silently ignoring the second.
             if (requested != DownloadBus.modelId.value) {
-                DownloadBus.events.tryEmit(Download.Failed(requested, "Another model is already downloading."))
+                DownloadBus.events.tryEmit(Download.Failed(requested, getString(R.string.download_another_running)))
             }
             return START_NOT_STICKY
         }
@@ -112,7 +113,7 @@ class DownloadService : Service() {
         job?.cancel()
         DownloadBus.running.value = false
         DownloadBus.progress.value = null
-        DownloadBus.events.tryEmit(Download.Failed(DownloadBus.modelId.value ?: "", "Cancelled", cancelled = true))
+        DownloadBus.events.tryEmit(Download.Failed(DownloadBus.modelId.value ?: "", getString(R.string.download_cancelled), cancelled = true))
         stopSelf()
     }
 
@@ -122,7 +123,7 @@ class DownloadService : Service() {
         DownloadBus.running.value = false
         DownloadBus.progress.value = null
         DownloadBus.events.tryEmit(
-            Download.Failed(DownloadBus.modelId.value ?: "", "Android paused the download. Retry to continue.")
+            Download.Failed(DownloadBus.modelId.value ?: "", getString(R.string.download_android_paused))
         )
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -143,9 +144,9 @@ class DownloadService : Service() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Model download",
+            getString(R.string.download_channel_name),
             NotificationManager.IMPORTANCE_LOW
-        ).apply { description = "Shows progress while maik fetches its model." }
+        ).apply { description = getString(R.string.download_channel_detail) }
         manager().createNotificationChannel(channel)
     }
 
@@ -173,18 +174,22 @@ class DownloadService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val mb = if (total > 0) "${bytes / 1024 / 1024} / ${total / 1024 / 1024} MB" else "Starting…"
+        val mb = if (total > 0) {
+            getString(R.string.download_notification_progress, bytes / 1024 / 1024, total / 1024 / 1024)
+        } else {
+            getString(R.string.download_notification_starting)
+        }
         val percent = if (total > 0) ((bytes * 100) / total).toInt() else 0
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Downloading $label")
+            .setContentTitle(getString(R.string.download_notification_title, label))
             .setContentText(mb)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setContentIntent(open)
             .setProgress(100, percent, indeterminate)
-            .addAction(0, "Cancel", cancel)
+            .addAction(0, getString(R.string.download_notification_cancel), cancel)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
@@ -207,7 +212,7 @@ class DownloadService : Service() {
             } catch (e: IllegalStateException) {
                 // Includes ForegroundServiceStartNotAllowedException.
                 DownloadBus.events.tryEmit(
-                    Download.Failed(modelId, "Android won't allow a download right now. Try again in a moment.")
+                    Download.Failed(modelId, context.getString(R.string.download_not_allowed_now))
                 )
             }
         }

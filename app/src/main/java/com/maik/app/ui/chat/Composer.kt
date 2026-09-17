@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
@@ -25,6 +26,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.maik.app.*
+import com.maik.app.R
 import com.maik.app.data.*
 import com.maik.app.engine.*
 import com.maik.app.ui.components.*
@@ -43,6 +45,8 @@ internal fun Composer(
     onStop: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
+    val sendLabel = stringResource(R.string.chat_send)
+    val stopLabel = stringResource(R.string.chat_stop)
     // Typing is always allowed, so a question can be ready by the time the model is.
     val canSend = value.isNotBlank() && !busy && ready
 
@@ -64,9 +68,9 @@ internal fun Composer(
             if (value.isEmpty()) {
                 Text(
                     when {
-                        busy -> "maik is answering…"
-                        !ready -> "Waiting for the model…"
-                        else -> "Ask maik anything…"
+                        busy -> stringResource(R.string.chat_maik_is_answering)
+                        !ready -> stringResource(R.string.chat_waiting_for_the_model)
+                        else -> stringResource(R.string.chat_ask_maik_anything)
                     },
                     style = MaterialTheme.typography.bodyLarge,
                     color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
@@ -95,7 +99,7 @@ internal fun Composer(
                 .pressable(source)
                 .clip(CircleShape)
                 .background(bg)
-                .semantics { contentDescription = if (busy) "Stop" else "Send" }
+                .semantics { contentDescription = if (busy) stopLabel else sendLabel }
                 .clickable(
                     enabled = canSend || busy,
                     interactionSource = source,

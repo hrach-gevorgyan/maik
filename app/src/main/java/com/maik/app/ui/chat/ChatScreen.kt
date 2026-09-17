@@ -4,7 +4,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -22,6 +28,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -29,6 +36,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.maik.app.*
+import com.maik.app.R
 import com.maik.app.data.*
 import com.maik.app.engine.*
 import com.maik.app.ui.components.*
@@ -69,6 +77,9 @@ internal fun ChatScreen(vm: ChatViewModel) {
     // Your own message always brings you back down; a reply arriving doesn't yank you
     // away from something you scrolled up to read.
     val lastFromUser = convo.messages.lastOrNull()?.fromUser == true
+    // Everything already in the chat when it opened is drawn as-is; only what arrives
+    // after that animates, so opening a long chat isn't a wave of movement.
+    val alreadyThere = rememberSaveable(convo.id) { count }
     LaunchedEffect(count) {
         if (count > 0 && (lastFromUser || listState.firstVisibleItemIndex <= 1)) {
             listState.animateScrollToItem(0)
@@ -88,7 +99,7 @@ internal fun ChatScreen(vm: ChatViewModel) {
                     modifier = Modifier
                         .heightIn(min = 48.dp)
                         .clip(RoundedCornerShape(10.dp))
-                        .clickable(enabled = !vm.busy, onClickLabel = "Change model") { pickingModel = true }
+                        .clickable(enabled = !vm.busy, onClickLabel = stringResource(R.string.chat_change_model)) { pickingModel = true }
                         .padding(horizontal = 10.dp, vertical = 14.dp)
                 )
             }
@@ -109,7 +120,7 @@ internal fun ChatScreen(vm: ChatViewModel) {
             if (!vm.busy && last?.fromUser == false && vm.stage is Stage.Ready) {
                 item(key = "again", contentType = 3) {
                     Box(Modifier.animateItem(fadeInSpec = tween(Motion.NORMAL, delayMillis = 120), placementSpec = null)) {
-                        QuietAction(if (last.isError) "Try again" else "Regenerate") {
+                        QuietAction(if (last.isError) stringResource(R.string.chat_try_again) else stringResource(R.string.chat_regenerate)) {
                             buzz()
                             vm.regenerate()
                         }
@@ -124,7 +135,16 @@ internal fun ChatScreen(vm: ChatViewModel) {
                 item(key = "m$count", contentType = 1) {
                     Box(Modifier.animateItem(placementSpec = null, fadeOutSpec = null)) {
                         val text = vm.streaming
-                        if (text.isEmpty()) TypingDots() else Bubble(Message(text, fromUser = false))
+                        // The dots hand over to the first words instead of blinking out.
+                        AnimatedContent(
+                            targetState = text.isEmpty(),
+                            transitionSpec = {
+                                fadeIn(tween(Motion.NORMAL)) togetherWith fadeOut(tween(Motion.QUICK))
+                            },
+                            label = "live"
+                        ) { waiting ->
+                            if (waiting) TypingDots() else Bubble(Message(text, fromUser = false))
+                        }
                     }
                 }
             }
@@ -132,18 +152,35 @@ internal fun ChatScreen(vm: ChatViewModel) {
             for (index in convo.messages.indices.reversed()) {
                 val msg = convo.messages[index]
                 item(key = "m$index", contentType = if (msg.fromUser) 0 else 1) {
-                    Column(Modifier.animateItem(placementSpec = null, fadeOutSpec = null)) {
-                        Bubble(msg, onLongPress = { menuFor = index })
-                        if (vm.debugMode && msg.stats != null) SpeedLine(msg.stats)
+                    Column(Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)) {
+                        val body = @Composable {
+                            Column {
+                                Bubble(msg, onLongPress = { menuFor = index })
+                                if (vm.debugMode && msg.stats != null) SpeedLine(msg.stats)
+                            }
+                        }
+                        if (index >= alreadyThere) AppearsIn { body() } else body()
                     }
                 }
             }
 
+            if (vm.stoppedForHeat) {
+                item(key = "heat") {
+                    ContextNotice(
+                        stringResource(R.string.chat_maik_stopped_early_because_the)
+                    )
+                }
+            }
             if (vm.dropped > 0) {
                 item(key = "dropped") { ContextNotice(vm.dropped) }
             }
-            if (convo.messages.isEmpty() && !vm.busy) {
-                item(key = "empty") { ChatEmptyState(vm.modelFor(convo).label, ready = vm.stage is Stage.Ready) }
+        }
+
+        // An empty chat has nothing to anchor to the bottom, so it sits where the eye
+        // lands instead of hugging the message box.
+        if (convo.messages.isEmpty() && !vm.busy) {
+            Box(Modifier.fillMaxSize().padding(horizontal = 20.dp), contentAlignment = Alignment.Center) {
+                ChatEmptyState(vm.modelFor(convo).label, ready = vm.stage is Stage.Ready)
             }
         }
 
@@ -151,14 +188,16 @@ internal fun ChatScreen(vm: ChatViewModel) {
         // pulling the reader down.
         androidx.compose.animation.AnimatedVisibility(
             visible = !atBottom && count > 0,
-            enter = fadeIn(tween(Motion.QUICK)),
-            exit = fadeOut(tween(Motion.QUICK)),
+            enter = fadeIn(tween(Motion.NORMAL)) +
+                slideInVertically(tween(Motion.NORMAL, easing = FastOutSlowInEasing)) { it / 2 } +
+                scaleIn(tween(Motion.NORMAL), initialScale = 0.9f),
+            exit = fadeOut(tween(Motion.QUICK)) + scaleOut(tween(Motion.QUICK), targetScale = 0.9f),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 12.dp)
         ) {
             Text(
-                "Jump to latest",
+                stringResource(R.string.chat_jump_to_latest),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onPrimary,
                 modifier = Modifier
@@ -178,33 +217,33 @@ internal fun ChatScreen(vm: ChatViewModel) {
             val msg = convo.messages.getOrNull(index)
             if (msg == null) menuFor = null else {
                 val actions = buildList {
-                    add(SheetAction("Copy") {
+                    add(SheetAction(stringResource(R.string.chat_copy)) {
                         copyToClipboard(context, msg.text)
                         menuFor = null
                     })
-                    add(SheetAction("Select text") {
+                    add(SheetAction(stringResource(R.string.chat_select_text)) {
                         selectingText = msg.text
                         menuFor = null
                     })
-                    add(SheetAction("Share") {
+                    add(SheetAction(stringResource(R.string.chat_share)) {
                         shareText(context, msg.text)
                         menuFor = null
                     })
                     if (msg.fromUser && !vm.busy) {
-                        add(SheetAction("Edit and send again") {
+                        add(SheetAction(stringResource(R.string.chat_edit_and_send_again)) {
                             editing = index
                             menuFor = null
                         })
                     }
                     if (!vm.busy) {
-                        add(SheetAction("Delete message", destructive = true) {
+                        add(SheetAction(stringResource(R.string.chat_delete_message), destructive = true) {
                             vm.deleteMessage(index)
                             menuFor = null
                         })
                     }
                 }
                 ActionSheet(
-                    title = if (msg.fromUser) "Your message" else "maik's reply",
+                    title = if (msg.fromUser) stringResource(R.string.chat_your_message) else stringResource(R.string.chat_maik_s_reply),
                     subtitle = relativeTime(msg.at),
                     actions = actions,
                     onDismiss = { menuFor = null }
@@ -291,7 +330,7 @@ private fun StatusStrip(vm: ChatViewModel, model: ModelSpec) {
                             delay(1000)
                         }
                     }
-                    StripText("Loading ${vm.target.label}" + if (seconds > 2) " · ${seconds}s" else "")
+                    StripText(stringResource(R.string.chat_loading, vm.target.label) + if (seconds > 2) stringResource(R.string.chat_s, seconds) else "")
                     Spacer(Modifier.height(8.dp))
                     LinearProgressIndicator(
                         modifier = Modifier.fillMaxWidth(),
@@ -303,10 +342,10 @@ private fun StatusStrip(vm: ChatViewModel, model: ModelSpec) {
                 is Stage.Downloading -> {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         StripText(
-                            "Downloading ${vm.target.label} · ${(stage.fraction * 100).toInt()}%",
+                            stringResource(R.string.chat_downloading, vm.target.label, (stage.fraction * 100).toInt()),
                             Modifier.weight(1f)
                         )
-                        StripAction("View", vm::showDownload)
+                        StripAction(stringResource(R.string.chat_view), vm::showDownload)
                     }
                     LinearProgressIndicator(
                         progress = { stage.fraction },
@@ -317,8 +356,8 @@ private fun StatusStrip(vm: ChatViewModel, model: ModelSpec) {
                 }
 
                 is Stage.NeedsModel -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    StripText("${model.label} isn't on this phone yet.", Modifier.weight(1f))
-                    StripAction("Download") { vm.openDownload(model) }
+                    StripText(stringResource(R.string.chat_isn_t_on_this_phone, model.label), Modifier.weight(1f))
+                    StripAction(stringResource(R.string.chat_download)) { vm.openDownload(model) }
                 }
 
                 is Stage.Broken -> {
@@ -329,12 +368,12 @@ private fun StatusStrip(vm: ChatViewModel, model: ModelSpec) {
                     )
                     Row {
                         when (stage.fix) {
-                            Fix.RETRY_LOAD -> StripAction("Try again", vm::retry)
-                            Fix.RESUME_DOWNLOAD -> StripAction("Continue download") { vm.openDownload(vm.target) }
-                            Fix.REDOWNLOAD -> StripAction("Download again") { vm.openDownload(vm.target) }
+                            Fix.RETRY_LOAD -> StripAction(stringResource(R.string.chat_try_again), vm::retry)
+                            Fix.RESUME_DOWNLOAD -> StripAction(stringResource(R.string.chat_continue_download)) { vm.openDownload(vm.target) }
+                            Fix.REDOWNLOAD -> StripAction(stringResource(R.string.chat_download_again)) { vm.openDownload(vm.target) }
                         }
                         if (vm.useGpu && stage.fix == Fix.RETRY_LOAD) {
-                            StripAction("Use CPU instead") { vm.updateUseGpu(false) }
+                            StripAction(stringResource(R.string.chat_use_cpu_instead)) { vm.updateUseGpu(false) }
                         }
                     }
                 }
@@ -371,13 +410,13 @@ private fun StripAction(label: String, onClick: () -> Unit) {
 
 @Composable
 private fun ChatEmptyState(modelLabel: String, ready: Boolean) {
-    Column(Modifier.padding(top = 40.dp, bottom = 24.dp)) {
+    Column {
         Wordmark(size = 44)
         Spacer(Modifier.height(10.dp))
         Text(
             // Only claim the model is running when it is; the strip above covers the rest.
-            if (ready) "Running $modelLabel on this phone. Nothing you type leaves it."
-            else "Everything here stays on this phone. You can start as soon as $modelLabel is ready.",
+            if (ready) stringResource(R.string.chat_running_on_this_phone_nothing, modelLabel)
+            else stringResource(R.string.chat_everything_here_stays_on_this, modelLabel),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f)
         )
@@ -386,10 +425,16 @@ private fun ChatEmptyState(modelLabel: String, ready: Boolean) {
 
 @Composable
 private fun ContextNotice(dropped: Int) {
+    ContextNotice(
+        stringResource(R.string.chat_earlier_message_no_longer_fit, dropped, if (dropped == 1) "" else "s")
+    )
+}
+
+@Composable
+private fun ContextNotice(text: String) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
         Text(
-            "$dropped earlier message${if (dropped == 1) "" else "s"} " +
-                "no longer fit in the model's memory",
+            text,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f)
         )
@@ -414,7 +459,7 @@ private fun ModelPicker(
         containerColor = scheme.surfaceVariant,
         title = {
             Text(
-                "Answer with",
+                stringResource(R.string.chat_answer_with),
                 style = MaterialTheme.typography.titleMedium,
                 color = scheme.onSurface
             )
@@ -447,7 +492,7 @@ private fun ModelPicker(
                         )
                         Spacer(Modifier.weight(1f))
                         Text(
-                            if (model.id in installed) "ready" else "${model.approxMb} MB",
+                            if (model.id in installed) "ready" else stringResource(R.string.chat_mb, model.approxMb),
                             style = MaterialTheme.typography.labelSmall,
                             color = if (model.id in installed) scheme.primary
                             else scheme.onSurfaceVariant.copy(alpha = 0.64f)
@@ -458,7 +503,7 @@ private fun ModelPicker(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Close", color = scheme.onSurfaceVariant)
+                Text(stringResource(R.string.chat_close), color = scheme.onSurfaceVariant)
             }
         }
     )
@@ -472,13 +517,13 @@ private fun EditMessageDialog(initial: String, onSend: (String) -> Unit, onDismi
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = scheme.surfaceVariant,
-        title = { DialogTitle("Edit your message") },
+        title = { DialogTitle(stringResource(R.string.chat_edit_your_message)) },
         text = {
             Column {
                 EditorField(draft) { draft = it }
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "Everything after this message will be replaced by a new answer.",
+                    stringResource(R.string.chat_everything_after_this_message_will),
                     style = MaterialTheme.typography.labelSmall,
                     color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                 )
@@ -486,11 +531,11 @@ private fun EditMessageDialog(initial: String, onSend: (String) -> Unit, onDismi
         },
         confirmButton = {
             TextButton(enabled = draft.isNotBlank(), onClick = { onSend(draft) }) {
-                Text("Send again", color = scheme.primary)
+                Text(stringResource(R.string.chat_send_again), color = scheme.primary)
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel", color = scheme.onSurfaceVariant) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.chat_cancel), color = scheme.onSurfaceVariant) }
         }
     )
 }
@@ -502,23 +547,22 @@ private fun ModelSwitchDialog(choice: ModelSwitch, onChoose: (Boolean) -> Unit) 
     AlertDialog(
         onDismissRequest = { onChoose(false) },
         containerColor = scheme.surfaceVariant,
-        title = { DialogTitle("This chat used ${choice.chatModel.label}") },
+        title = { DialogTitle(stringResource(R.string.chat_this_chat_used, choice.chatModel.label)) },
         text = {
             Text(
-                "${choice.loaded.label} is loaded right now. Switching reloads the model, " +
-                    "which takes a moment.",
+                stringResource(R.string.chat_is_loaded_right_now_switching, choice.loaded.label),
                 style = MaterialTheme.typography.bodyMedium,
                 color = scheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
         },
         confirmButton = {
             TextButton(onClick = { onChoose(true) }) {
-                Text("Switch to ${choice.chatModel.label}", color = scheme.primary)
+                Text(stringResource(R.string.chat_switch_to, choice.chatModel.label), color = scheme.primary)
             }
         },
         dismissButton = {
             TextButton(onClick = { onChoose(false) }) {
-                Text("Keep ${choice.loaded.label}", color = scheme.onSurfaceVariant)
+                Text(stringResource(R.string.chat_keep, choice.loaded.label), color = scheme.onSurfaceVariant)
             }
         }
     )

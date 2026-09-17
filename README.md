@@ -149,6 +149,12 @@ catalogue and starts with the `LITERTLM` header is renamed into place.
 **Models stay out of backups.** Android backs up your chats and settings, never the
 multi-gigabyte model files.
 
+**Heat is treated as a feature, not an accident.** "Keep the phone cool" decodes with half
+the cores and stops a reply once Android reports the phone is throttling.
+
+**All user-facing text lives in `res/values/strings.xml`**, English as the source language,
+ready for translation.
+
 **Chats are saved atomically**, off the main thread. A crash mid-save leaves the previous
 history intact instead of wiping it.
 

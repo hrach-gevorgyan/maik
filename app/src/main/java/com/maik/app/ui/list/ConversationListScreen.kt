@@ -22,6 +22,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.contentDescription
@@ -29,6 +30,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.maik.app.*
+import com.maik.app.R
 import com.maik.app.data.*
 import com.maik.app.engine.*
 import com.maik.app.ui.chat.*
@@ -62,7 +64,7 @@ fun ConversationListScreen(vm: ChatViewModel) {
             Spacer(Modifier.width(12.dp))
             OnDevicePill()
             Spacer(Modifier.weight(1f))
-            MaikIconButton(description = "Settings", onClick = vm::openSettings) { Sliders(scheme.onBackground) }
+            MaikIconButton(description = stringResource(R.string.list_settings), onClick = vm::openSettings) { Sliders(scheme.onBackground) }
         }
         HorizontalLine()
 
@@ -84,7 +86,7 @@ fun ConversationListScreen(vm: ChatViewModel) {
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        "Nothing matches \"${vm.query.trim()}\"",
+                        stringResource(R.string.list_nothing_matches, vm.query.trim()),
                         style = MaterialTheme.typography.bodyLarge,
                         color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                     )
@@ -115,9 +117,11 @@ fun ConversationListScreen(vm: ChatViewModel) {
                 }
             }
 
-            NewChatButton {
-                buzz()
-                vm.newChat()
+            AppearsIn {
+                NewChatButton {
+                    buzz()
+                    vm.newChat()
+                }
             }
         }
     }
@@ -125,17 +129,17 @@ fun ConversationListScreen(vm: ChatViewModel) {
     menuFor?.let { convo ->
         ActionSheet(
             title = convo.title,
-            subtitle = "${convo.messages.size} messages · ${relativeTime(convo.updatedAt)}",
+            subtitle = stringResource(R.string.list_messages, convo.messages.size, relativeTime(convo.updatedAt)),
             actions = listOf(
-                SheetAction(if (convo.pinned) "Unpin" else "Pin to top") {
+                SheetAction(if (convo.pinned) stringResource(R.string.list_unpin) else stringResource(R.string.list_pin_to_top)) {
                     vm.togglePin(convo.id)
                     menuFor = null
                 },
-                SheetAction("Rename") {
+                SheetAction(stringResource(R.string.list_rename)) {
                     renaming = convo
                     menuFor = null
                 },
-                SheetAction("Delete", destructive = true) {
+                SheetAction(stringResource(R.string.list_delete), destructive = true) {
                     confirmDelete = convo
                     menuFor = null
                 }
@@ -148,10 +152,10 @@ fun ConversationListScreen(vm: ChatViewModel) {
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
             containerColor = scheme.surfaceVariant,
-            title = { DialogTitle("Delete this chat?") },
+            title = { DialogTitle(stringResource(R.string.list_delete_this_chat)) },
             text = {
                 Text(
-                    "\"${convo.title}\" and its ${convo.messages.size} messages will be gone for good.",
+                    stringResource(R.string.list_and_its_messages_will_be, convo.title, convo.messages.size),
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurfaceVariant
                 )
@@ -160,11 +164,11 @@ fun ConversationListScreen(vm: ChatViewModel) {
                 TextButton(onClick = {
                     vm.delete(convo.id)
                     confirmDelete = null
-                }) { Text("Delete", color = scheme.error) }
+                }) { Text(stringResource(R.string.list_delete), color = scheme.error) }
             },
             dismissButton = {
                 TextButton(onClick = { confirmDelete = null }) {
-                    Text("Cancel", color = scheme.onSurfaceVariant)
+                    Text(stringResource(R.string.list_cancel), color = scheme.onSurfaceVariant)
                 }
             }
         )
@@ -175,17 +179,17 @@ fun ConversationListScreen(vm: ChatViewModel) {
         AlertDialog(
             onDismissRequest = { renaming = null },
             containerColor = scheme.surfaceVariant,
-            title = { DialogTitle("Rename") },
+            title = { DialogTitle(stringResource(R.string.list_rename)) },
             text = { EditorField(draft, singleLine = true) { draft = it } },
             confirmButton = {
                 TextButton(onClick = {
                     vm.rename(convo.id, draft)
                     renaming = null
-                }) { Text("Save", color = scheme.primary) }
+                }) { Text(stringResource(R.string.list_save), color = scheme.primary) }
             },
             dismissButton = {
                 TextButton(onClick = { renaming = null }) {
-                    Text("Cancel", color = scheme.onSurfaceVariant)
+                    Text(stringResource(R.string.list_cancel), color = scheme.onSurfaceVariant)
                 }
             }
         )
@@ -210,7 +214,7 @@ private fun NewChatButton(onClick: () -> Unit) {
             Plus(scheme.onPrimary)
             Spacer(Modifier.width(10.dp))
             Text(
-                "New chat",
+                stringResource(R.string.list_new_chat),
                 style = MaterialTheme.typography.labelLarge,
                 color = scheme.onPrimary
             )
@@ -231,7 +235,7 @@ private fun EmptyList() {
                 Wordmark(size = 56)
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    "No conversations yet.\nEverything you start stays on this phone.",
+                    stringResource(R.string.list_no_conversations_yet_everything_you),
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f)
                 )
@@ -247,6 +251,7 @@ private fun ConversationRow(
     onLongPress: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
+    val pinned = stringResource(R.string.list_pinned)
     Row(
         Modifier
             .fillMaxWidth()
@@ -258,12 +263,12 @@ private fun ConversationRow(
     ) {
         if (convo.pinned) {
             Text(
-                "PIN",
+                stringResource(R.string.list_pin),
                 style = MaterialTheme.typography.labelSmall,
                 color = scheme.primary,
                 modifier = Modifier
                     .padding(end = 10.dp)
-                    .semantics { contentDescription = "Pinned" }
+                    .semantics { contentDescription = pinned }
             )
         }
         Column(Modifier.weight(1f)) {
@@ -325,7 +330,7 @@ private fun SwipeToDelete(onDelete: () -> Unit, content: @Composable () -> Unit)
                     Alignment.CenterEnd else Alignment.CenterStart
             ) {
                 Text(
-                    "Delete",
+                    stringResource(R.string.list_delete),
                     style = MaterialTheme.typography.labelLarge,
                     color = scheme.error
                 )
@@ -348,7 +353,7 @@ private fun SearchField(value: String, onValueChange: (String) -> Unit) {
     ) {
         if (value.isEmpty()) {
             Text(
-                "Search conversations",
+                stringResource(R.string.list_search_conversations),
                 style = MaterialTheme.typography.bodyMedium,
                 color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
             )

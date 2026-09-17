@@ -24,12 +24,14 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.maik.app.*
+import com.maik.app.R
 import com.maik.app.BuildConfig
 import com.maik.app.data.*
 import com.maik.app.engine.*
@@ -68,44 +70,45 @@ fun SettingsScreen(vm: ChatViewModel) {
 
 private data class Entry(
     val page: SettingsPage,
-    val title: String,
-    val detail: (ChatViewModel) -> String
+    val title: @Composable () -> String,
+    val detail: @Composable (ChatViewModel) -> String
 )
 
 private val ENTRIES = listOf(
-    Entry(SettingsPage.Models, "Models") {
-        if (it.spec.id in it.installedModels()) "${it.spec.label} in use"
-        else "Nothing downloaded yet"
+    Entry(SettingsPage.Models, { stringResource(R.string.settings_models) }) {
+        if (it.spec.id in it.installedModels()) stringResource(R.string.settings_in_use, it.spec.label)
+        else stringResource(R.string.settings_nothing_downloaded_yet)
     },
-    Entry(SettingsPage.Instructions, "Instructions") {
+    Entry(SettingsPage.Instructions, { stringResource(R.string.settings_instructions) }) {
         it.systemPrompt.replace('\n', ' ').take(46).trim() + "…"
     },
-    Entry(SettingsPage.Appearance, "Appearance") {
+    Entry(SettingsPage.Appearance, { stringResource(R.string.settings_appearance) }) {
         when (it.themeMode) {
-            ThemeMode.SYSTEM -> "Follow the system"
-            ThemeMode.DARK -> "Dark"
-            ThemeMode.LIGHT -> "Light"
+            ThemeMode.SYSTEM -> stringResource(R.string.settings_follow_the_system)
+            ThemeMode.DARK -> stringResource(R.string.settings_dark)
+            ThemeMode.LIGHT -> stringResource(R.string.settings_light)
         }
     },
-    Entry(SettingsPage.Behaviour, "Behaviour") {
+    Entry(SettingsPage.Behaviour, { stringResource(R.string.settings_behaviour) }) {
         buildString {
-            append(if (it.hapticsEnabled) "Vibration on" else "Vibration off")
+            append(if (it.hapticsEnabled) stringResource(R.string.settings_vibration_on) else stringResource(R.string.settings_vibration_off))
             append(" · ")
-            append(if (it.useGpu) "GPU" else "CPU")
+            append(if (it.useGpu) stringResource(R.string.settings_gpu) else stringResource(R.string.settings_cpu))
+            if (it.keepCool) append(stringResource(R.string.settings_cool))
         }
     },
-    Entry(SettingsPage.Storage, "Storage") { "${it.bytesOnDisk() / 1024 / 1024} MB of models" },
-    Entry(SettingsPage.About, "About") { "Version, licence, how it works" }
+    Entry(SettingsPage.Storage, { stringResource(R.string.settings_storage) }) { stringResource(R.string.settings_mb_of_models, it.bytesOnDisk() / 1024 / 1024) },
+    Entry(SettingsPage.About, { stringResource(R.string.settings_about) }) { stringResource(R.string.settings_version_licence_how_it_works) }
 )
 
 @Composable
 private fun SettingsMenu(vm: ChatViewModel) {
     Column(Modifier.fillMaxSize()) {
-        TopBar(title = "Settings", onBack = vm::openList)
+        TopBar(title = stringResource(R.string.settings_settings), onBack = vm::openList)
         LazyColumn(Modifier.fillMaxSize()) {
             items(ENTRIES) { entry ->
                 MenuRow(
-                    title = entry.title,
+                    title = entry.title(),
                     detail = entry.detail(vm),
                     onClick = { vm.openSettingsPage(entry.page) }
                 )
@@ -155,12 +158,11 @@ private fun ModelsPage(vm: ChatViewModel) {
     var confirmDelete by remember { mutableStateOf<ModelSpec?>(null) }
 
     Column(Modifier.fillMaxSize()) {
-        TopBar(title = "Models", onBack = { vm.openSettingsPage(SettingsPage.Root) })
+        TopBar(title = stringResource(R.string.settings_models), onBack = { vm.openSettingsPage(SettingsPage.Root) })
         LazyColumn(contentPadding = PaddingValues(20.dp)) {
             item {
                 Text(
-                    "New chats use the model marked in use. Each model is downloaded once " +
-                        "and works offline after that.",
+                    stringResource(R.string.settings_new_chats_use_the_model),
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurfaceVariant
                 )
@@ -183,11 +185,10 @@ private fun ModelsPage(vm: ChatViewModel) {
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
             containerColor = scheme.surfaceVariant,
-            title = { DialogTitle("Delete ${model.label}?") },
+            title = { DialogTitle(stringResource(R.string.settings_delete, model.label)) },
             text = {
                 Text(
-                    "This frees ${model.approxMb} MB. Your chats stay; you would need to " +
-                        "download the model again to use it.",
+                    stringResource(R.string.settings_this_frees_mb_your_chats, model.approxMb),
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurfaceVariant
                 )
@@ -196,11 +197,11 @@ private fun ModelsPage(vm: ChatViewModel) {
                 TextButton(onClick = {
                     vm.deleteModel(model)
                     confirmDelete = null
-                }) { Text("Delete", color = scheme.error) }
+                }) { Text(stringResource(R.string.settings_delete_2), color = scheme.error) }
             },
             dismissButton = {
                 TextButton(onClick = { confirmDelete = null }) {
-                    Text("Cancel", color = scheme.onSurfaceVariant)
+                    Text(stringResource(R.string.settings_cancel), color = scheme.onSurfaceVariant)
                 }
             }
         )
@@ -239,28 +240,28 @@ private fun ModelRow(
             Text(model.label, style = MaterialTheme.typography.titleMedium, color = scheme.onSurface)
             if (inUse) {
                 Spacer(Modifier.width(8.dp))
-                Tag("IN USE")
+                Tag(stringResource(R.string.settings_in_use_2))
             }
             Spacer(Modifier.weight(1f))
             Text(
-                "${model.approxMb} MB",
+                stringResource(R.string.settings_mb, model.approxMb),
                 style = MaterialTheme.typography.labelSmall,
                 color = scheme.onSurfaceVariant
             )
         }
         Spacer(Modifier.height(4.dp))
         Text(
-            "${model.params} · ${model.contextTokens / 1024}K context",
+            stringResource(R.string.settings_k_context, model.params, model.contextTokens / 1024),
             style = MaterialTheme.typography.labelSmall,
             color = scheme.onSurfaceVariant
         )
         Spacer(Modifier.height(8.dp))
-        Text(model.blurb, style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant)
+        Text(stringResource(model.blurbRes), style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant)
 
         if (tooLittleRam && !installed) {
             Spacer(Modifier.height(8.dp))
             Text(
-                "This phone may not have enough memory to run it smoothly.",
+                stringResource(R.string.settings_this_phone_may_not_have),
                 style = MaterialTheme.typography.bodyMedium,
                 color = scheme.error
             )
@@ -280,12 +281,12 @@ private fun ModelRow(
         Spacer(Modifier.height(6.dp))
         Row {
             when {
-                downloading -> RowAction("View download") { vm.openDownload(model) }
-                !installed -> RowAction("Download") { vm.openDownload(model) }
-                !inUse -> RowAction("Use for new chats") { vm.selectModel(model) }
+                downloading -> RowAction(stringResource(R.string.settings_view_download)) { vm.openDownload(model) }
+                !installed -> RowAction(stringResource(R.string.settings_download)) { vm.openDownload(model) }
+                !inUse -> RowAction(stringResource(R.string.settings_use_for_new_chats)) { vm.selectModel(model) }
             }
             Spacer(Modifier.weight(1f))
-            if (installed && !downloading) RowAction("Delete", scheme.error, onDelete)
+            if (installed && !downloading) RowAction(stringResource(R.string.settings_delete_2), scheme.error, onDelete)
         }
     }
 }
@@ -324,20 +325,19 @@ private fun Tag(text: String) {
 @Composable
 private fun AppearancePage(vm: ChatViewModel) {
     Column(Modifier.fillMaxSize()) {
-        TopBar(title = "Appearance", onBack = { vm.openSettingsPage(SettingsPage.Root) })
+        TopBar(title = stringResource(R.string.settings_appearance), onBack = { vm.openSettingsPage(SettingsPage.Root) })
         Column(Modifier.padding(20.dp)) {
             Text(
-                "Dark is the design maik was drawn for. Light exists because phones " +
-                    "get used outdoors.",
+                stringResource(R.string.settings_dark_is_the_design_maik),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f)
             )
             Spacer(Modifier.height(18.dp))
 
             listOf(
-                ThemeMode.SYSTEM to "Follow the system",
-                ThemeMode.DARK to "Dark",
-                ThemeMode.LIGHT to "Light"
+                ThemeMode.SYSTEM to stringResource(R.string.settings_follow_the_system),
+                ThemeMode.DARK to stringResource(R.string.settings_dark),
+                ThemeMode.LIGHT to stringResource(R.string.settings_light)
             ).forEach { (mode, label) ->
                 ChoiceRow(
                     label = label,
@@ -395,15 +395,13 @@ private fun InstructionsPage(vm: ChatViewModel) {
     val scheme = MaterialTheme.colorScheme
 
     Column(Modifier.fillMaxSize()) {
-        TopBar(title = "Instructions", onBack = {
+        TopBar(title = stringResource(R.string.settings_instructions), onBack = {
             vm.updateSystemPrompt(draft)
             vm.openSettingsPage(SettingsPage.Root)
         })
         Column(Modifier.padding(20.dp)) {
             Text(
-                "A standing note handed to the model before every conversation. It " +
-                    "sets the tone and the ground rules, so you don't have to repeat " +
-                    "yourself. Changes apply to your next message.",
+                stringResource(R.string.settings_a_standing_note_handed_to),
                 style = MaterialTheme.typography.bodyMedium,
                 color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
             )
@@ -412,13 +410,13 @@ private fun InstructionsPage(vm: ChatViewModel) {
             Spacer(Modifier.height(14.dp))
             Row {
                 Text(
-                    "${draft.length} characters",
+                    stringResource(R.string.settings_characters, draft.length),
                     style = MaterialTheme.typography.labelSmall,
                     color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
-                    "Reset",
+                    stringResource(R.string.settings_reset),
                     style = MaterialTheme.typography.labelLarge,
                     color = scheme.primary,
                     modifier = Modifier
@@ -428,7 +426,7 @@ private fun InstructionsPage(vm: ChatViewModel) {
                 )
             }
             Spacer(Modifier.height(20.dp))
-            BigButton("Save") {
+            BigButton(stringResource(R.string.settings_save)) {
                 vm.updateSystemPrompt(draft)
                 vm.openSettingsPage(SettingsPage.Root)
             }
@@ -445,22 +443,22 @@ private fun StoragePage(vm: ChatViewModel) {
     val onDisk = remember(vm.storageVersion) { vm.bytesOnDisk() }
 
     Column(Modifier.fillMaxSize()) {
-        TopBar(title = "Storage", onBack = { vm.openSettingsPage(SettingsPage.Root) })
+        TopBar(title = stringResource(R.string.settings_storage), onBack = { vm.openSettingsPage(SettingsPage.Root) })
         LazyColumn(contentPadding = PaddingValues(20.dp)) {
             item {
                 Text(
-                    "${onDisk / 1024 / 1024} MB of models on this device.",
+                    stringResource(R.string.settings_mb_of_models_on_this, onDisk / 1024 / 1024),
                     style = MaterialTheme.typography.titleMedium,
                     color = scheme.onBackground
                 )
                 Spacer(Modifier.height(18.dp))
             }
             item {
-                OutlineButton("Manage models") { vm.openSettingsPage(SettingsPage.Models) }
+                OutlineButton(stringResource(R.string.settings_manage_models)) { vm.openSettingsPage(SettingsPage.Models) }
             }
             item {
                 Spacer(Modifier.height(24.dp))
-                OutlineButton("Delete all conversations") { confirmWipe = true }
+                OutlineButton(stringResource(R.string.settings_delete_all_conversations)) { confirmWipe = true }
             }
         }
     }
@@ -471,15 +469,14 @@ private fun StoragePage(vm: ChatViewModel) {
             containerColor = scheme.surfaceVariant,
             title = {
                 Text(
-                    "Delete everything?",
+                    stringResource(R.string.settings_delete_everything),
                     style = MaterialTheme.typography.titleMedium,
                     color = scheme.onSurface
                 )
             },
             text = {
                 Text(
-                    "All ${vm.conversations.size} conversations, permanently. " +
-                        "There is no backup — that's the point.",
+                    stringResource(R.string.settings_all_conversations_permanently_there_is, vm.conversations.size),
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
@@ -488,11 +485,11 @@ private fun StoragePage(vm: ChatViewModel) {
                 TextButton(onClick = {
                     vm.deleteAll()
                     confirmWipe = false
-                }) { Text("Delete all", color = scheme.error) }
+                }) { Text(stringResource(R.string.settings_delete_all), color = scheme.error) }
             },
             dismissButton = {
                 TextButton(onClick = { confirmWipe = false }) {
-                    Text("Cancel", color = scheme.onSurfaceVariant)
+                    Text(stringResource(R.string.settings_cancel), color = scheme.onSurfaceVariant)
                 }
             }
         )
@@ -502,37 +499,41 @@ private fun StoragePage(vm: ChatViewModel) {
 @Composable
 private fun BehaviourPage(vm: ChatViewModel) {
     Column(Modifier.fillMaxSize()) {
-        TopBar(title = "Behaviour", onBack = { vm.openSettingsPage(SettingsPage.Root) })
+        TopBar(title = stringResource(R.string.settings_behaviour), onBack = { vm.openSettingsPage(SettingsPage.Root) })
         Column(Modifier.padding(20.dp)) {
             ToggleRow(
                 label = "Vibration",
-                detail = "A short tap when you send, stop, or press and hold.",
+                detail = stringResource(R.string.settings_a_short_tap_when_you),
                 checked = vm.hapticsEnabled,
                 onChange = vm::updateHaptics
             )
             Spacer(Modifier.height(12.dp))
             ToggleRow(
-                label = "Show speed",
-                detail = "Time to first word and words per second under each reply. " +
-                    "For troubleshooting.",
+                label = stringResource(R.string.settings_keep_the_phone_cool),
+                detail = stringResource(R.string.settings_answers_with_half_the_processor),
+                checked = vm.keepCool,
+                onChange = vm::updateKeepCool
+            )
+            Spacer(Modifier.height(12.dp))
+            ToggleRow(
+                label = stringResource(R.string.settings_show_speed),
+                detail = stringResource(R.string.settings_time_to_first_word_and),
                 checked = vm.debugMode,
                 onChange = vm::updateDebug
             )
             Spacer(Modifier.height(12.dp))
             ToggleRow(
-                label = "Use the GPU",
-                detail = "Much faster at reading your message. On by default on recent " +
-                    "Snapdragon chips. If the app ever crashes while loading, this turns " +
-                    "itself off.",
+                label = stringResource(R.string.settings_use_the_gpu),
+                detail = stringResource(R.string.settings_much_faster_at_reading_your),
                 checked = vm.useGpu,
                 onChange = vm::updateUseGpu
             )
             Spacer(Modifier.height(18.dp))
             Text(
                 when (vm.backend) {
-                    Backend.GPU -> "Currently running on the GPU."
-                    Backend.CPU -> "Currently running on the CPU."
-                    Backend.NONE -> "No model is loaded yet."
+                    Backend.GPU -> stringResource(R.string.settings_currently_running_on_the_gpu)
+                    Backend.CPU -> stringResource(R.string.settings_currently_running_on_the_cpu)
+                    Backend.NONE -> stringResource(R.string.settings_no_model_is_loaded_yet)
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f)
@@ -546,7 +547,7 @@ private fun AboutPage(vm: ChatViewModel) {
     val scheme = MaterialTheme.colorScheme
     val context = LocalContext.current
     Column(Modifier.fillMaxSize()) {
-        TopBar(title = "About", onBack = { vm.openSettingsPage(SettingsPage.Root) })
+        TopBar(title = stringResource(R.string.settings_about), onBack = { vm.openSettingsPage(SettingsPage.Root) })
         Column(
             Modifier
                 .fillMaxSize()
@@ -556,54 +557,47 @@ private fun AboutPage(vm: ChatViewModel) {
             Wordmark(size = 40)
             Spacer(Modifier.height(16.dp))
             Text(
-                "maik runs its model locally with Google's LiteRT-LM runtime. The only " +
-                    "network request it ever makes is the one that downloads a model. " +
-                    "Your conversations never leave this device, and there is no " +
-                    "account, no key and no telemetry.",
+                stringResource(R.string.settings_maik_runs_its_model_locally),
                 style = MaterialTheme.typography.bodyMedium,
                 color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
             )
             Spacer(Modifier.height(20.dp))
-            LabelledValue("VERSION", BuildConfig.VERSION_NAME)
-            LabelledValue("MODEL", vm.spec.label)
-            LabelledValue("CONTEXT", "${vm.spec.contextTokens} tokens")
+            LabelledValue(stringResource(R.string.settings_version), BuildConfig.VERSION_NAME)
+            LabelledValue(stringResource(R.string.settings_model), vm.spec.label)
+            LabelledValue(stringResource(R.string.settings_context), stringResource(R.string.settings_tokens, vm.spec.contextTokens))
             LabelledValue(
-                "RUNNING ON",
+                stringResource(R.string.settings_running_on),
                 when (vm.backend) {
-                    Backend.GPU -> "GPU"
-                    Backend.CPU -> "CPU"
-                    Backend.NONE -> "Nothing loaded"
+                    Backend.GPU -> stringResource(R.string.settings_gpu)
+                    Backend.CPU -> stringResource(R.string.settings_cpu)
+                    Backend.NONE -> stringResource(R.string.settings_nothing_loaded)
                 }
             )
 
             Spacer(Modifier.height(28.dp))
-            SectionTitle("What maik sends")
+            SectionTitle(stringResource(R.string.settings_what_maik_sends))
             Spacer(Modifier.height(8.dp))
             Text(
-                "Model downloads from huggingface.co, and nothing else. No analytics, " +
-                    "no crash reports, no account. Chats and settings are stored only on " +
-                    "this phone, and Android's own backup can copy them to your Google " +
-                    "account if you have backup switched on — model files are excluded.",
+                stringResource(R.string.settings_model_downloads_from_huggingface_co),
                 style = MaterialTheme.typography.bodyMedium,
                 color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
             )
 
             Spacer(Modifier.height(28.dp))
-            SectionTitle("Licences")
+            SectionTitle(stringResource(R.string.settings_licences))
             Spacer(Modifier.height(8.dp))
             LICENCES.forEach { (what, licence) ->
                 LabelledValue(what, licence)
             }
             Spacer(Modifier.height(10.dp))
             Text(
-                "Each model carries the licence of whoever trained it; read it before " +
-                    "using a model's output commercially.",
+                stringResource(R.string.settings_each_model_carries_the_licence),
                 style = MaterialTheme.typography.bodyMedium,
                 color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
             )
 
             Spacer(Modifier.height(24.dp))
-            OutlineButton("Source code on GitHub") {
+            OutlineButton(stringResource(R.string.settings_source_code_on_github)) {
                 runCatching<Unit> {
                     context.startActivity(
                         android.content.Intent(

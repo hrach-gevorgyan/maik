@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
@@ -33,6 +34,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.maik.app.*
+import com.maik.app.R
 import com.maik.app.data.*
 import com.maik.app.engine.*
 import com.maik.app.ui.components.*
@@ -227,7 +229,7 @@ fun MarkdownText(source: String, color: Color, modifier: Modifier = Modifier) {
                         val context = LocalContext.current
                         val buzz = tap()
                         Text(
-                            "Copy",
+                            stringResource(R.string.chat_copy),
                             style = MaterialTheme.typography.labelSmall,
                             color = scheme.primary,
                             modifier = Modifier

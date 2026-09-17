@@ -3,6 +3,7 @@ package com.maik.app.data
 import android.content.Context
 import android.os.Build
 import com.maik.app.*
+import com.maik.app.R
 import com.maik.app.engine.*
 import com.maik.app.ui.chat.*
 import com.maik.app.ui.components.*
@@ -35,7 +36,8 @@ data class ModelSpec(
     val id: String,
     val label: String,
     val params: String,
-    val blurb: String,
+    /** One line about the model, as a resource so it can be translated. */
+    @androidx.annotation.StringRes val blurbRes: Int,
     val url: String,
     val approxBytes: Long,
     /**
@@ -57,7 +59,7 @@ object Models {
         id = "gemma-4-e2b-it",
         label = "Gemma 4 E2B",
         params = "2B effective",
-        blurb = "Google's model built for phones. The most capable here.",
+        blurbRes = R.string.model_blurb_gemma,
         url = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/" +
             "resolve/b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1/gemma-4-E2B-it.litertlm",
         approxBytes = 2_588_147_712L,
@@ -70,7 +72,7 @@ object Models {
         id = "lfm2.5-1.2b-instruct-int4",
         label = "LFM2.5 1.2B",
         params = "1.2B · int4",
-        blurb = "A third of the download, quick to answer, and easy on the battery.",
+        blurbRes = R.string.model_blurb_lfm,
         url = "https://huggingface.co/litert-community/LFM2.5-1.2B-Instruct/" +
             "resolve/eb5e75a985a46b5d5707282539d985fdd34e2a10/LFM2.5-1.2B-Instruct_int4.litertlm",
         approxBytes = 736_015_744L,
@@ -105,6 +107,9 @@ sealed interface Download {
 
 class ModelStore(context: Context) {
 
+    private val app = context.applicationContext
+    private fun text(id: Int, vararg args: Any): String = app.getString(id, *args)
+
     private val dir = File(context.filesDir, "models").apply { mkdirs() }
     private val cacheRoot = File(context.filesDir, "litertlm-cache")
     private val prefs = context.getSharedPreferences("maik", Context.MODE_PRIVATE)
@@ -117,6 +122,13 @@ class ModelStore(context: Context) {
 
     /** Shows speed figures under replies. */
     var debug: Boolean = prefs.getBoolean("debug", false)
+        private set
+
+    /**
+     * Decodes with half the cores and stops a reply once the phone is throttling.
+     * On by default: a phone that is too hot to hold is worse than a slower answer.
+     */
+    var keepCool: Boolean = prefs.getBoolean("cool", true)
         private set
 
     /**
@@ -144,6 +156,11 @@ class ModelStore(context: Context) {
     fun setHaptics(enabled: Boolean) {
         haptics = enabled
         prefs.edit().putBoolean("haptics", enabled).apply()
+    }
+
+    fun setKeepCool(enabled: Boolean) {
+        keepCool = enabled
+        prefs.edit().putBoolean("cool", enabled).apply()
     }
 
     fun setDebug(enabled: Boolean) {
@@ -194,7 +211,9 @@ class ModelStore(context: Context) {
     fun partialBytes(s: ModelSpec): Long = partFor(s).let { if (it.exists()) it.length() else 0L }
 
     /** A readable problem with a downloaded model file, or null when it looks sound. */
-    fun check(s: ModelSpec): String? = fileFor(s).let { if (it.exists()) validate(it) else null }
+    fun check(s: ModelSpec): String? = fileFor(s).let {
+        if (it.exists()) validate(it)?.let { problem -> text(problem) } else null
+    }
 
     fun installed(): Set<String> = Models.ALL.filter { isReady(it) }.map { it.id }.toSet()
 
@@ -226,7 +245,7 @@ class ModelStore(context: Context) {
                     conn.connect()
                     val code = conn.responseCode
                     if (code !in 200..299 && code != 416) {
-                        emit(failed("The server answered $code."))
+                        emit(failed(text(R.string.download_server_answered, code)))
                         return@flow
                     }
                     val outcome = ResumePlan.decide(
@@ -237,7 +256,7 @@ class ModelStore(context: Context) {
                         ResumePlan.Outcome.RestartFromZero -> {
                             partial.delete()
                             if (attempt == 0) continue
-                            emit(failed("The server couldn't continue the download. Try again."))
+                            emit(failed(text(R.string.download_cannot_continue)))
                             return@flow
                         }
 
@@ -247,7 +266,7 @@ class ModelStore(context: Context) {
                             if (!outcome.resuming) partial.delete()
                             val remaining = outcome.total - outcome.start
                             if (!hasRoomFor(remaining, s)) {
-                                emit(failed("Not enough free space — this needs ${remaining / 1024 / 1024} MB more."))
+                                emit(failed(text(R.string.download_not_enough_space, remaining / 1024 / 1024)))
                                 return@flow
                             }
                             emit(Download.Progress(outcome.start, outcome.total))
@@ -259,7 +278,7 @@ class ModelStore(context: Context) {
                                 }
                             }
                             if (partial.length() < outcome.total) {
-                                emit(failed("The download was interrupted. It will continue from where it stopped."))
+                                emit(failed(text(R.string.download_interrupted)))
                                 return@flow
                             }
                         }
@@ -273,18 +292,18 @@ class ModelStore(context: Context) {
             // A pinned URL plus the checksum means a resumed file can't be two files spliced.
             if (!sha256Of(partial).equals(s.sha256, ignoreCase = true)) {
                 partial.delete()
-                emit(failed("The download was corrupted. Try again."))
+                emit(failed(text(R.string.download_corrupted)))
                 return@flow
             }
             validate(partial)?.let { problem ->
                 partial.delete()
-                emit(failed(problem))
+                emit(failed(text(problem)))
                 return@flow
             }
 
             if (target.exists()) target.delete()
             if (!partial.renameTo(target)) {
-                emit(failed("Could not save the downloaded file."))
+                emit(failed(text(R.string.download_could_not_save)))
                 return@flow
             }
             emit(Download.Done(target, s.id))
@@ -307,9 +326,9 @@ class ModelStore(context: Context) {
         runCatching { dir.usableSpace > bytes + maxOf(512L shl 20, s.approxBytes / 4) }.getOrDefault(false)
 
     private fun humanise(e: Exception): String = when (e) {
-        is java.net.UnknownHostException -> "No connection. The download will continue when you retry."
-        is java.net.SocketTimeoutException -> "The connection timed out. Retry to continue."
-        is java.io.IOException -> "The connection dropped. Retry to continue from where it stopped."
+        is java.net.UnknownHostException -> text(R.string.download_no_connection)
+        is java.net.SocketTimeoutException -> text(R.string.download_timed_out)
+        is java.io.IOException -> text(R.string.download_dropped)
         else -> e.message ?: e::class.java.simpleName
     }
 
@@ -366,15 +385,15 @@ class ModelStore(context: Context) {
             onProgress(copied)
         }
 
-        fun validate(file: File): String? = try {
+        fun validate(file: File): Int? = try {
             RandomAccessFile(file, "r").use { raf ->
                 val magic = ByteArray(MAGIC.length)
                 raf.readFully(magic)
                 if (String(magic, Charsets.US_ASCII) == MAGIC) null
-                else "That file isn't a usable model."
+                else R.string.download_not_a_model
             }
         } catch (_: Exception) {
-            "The downloaded file could not be read."
+            R.string.download_unreadable
         }
     }
 }

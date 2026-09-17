@@ -7,6 +7,35 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 2.2.0 — 17 September 2026
+
+**Cooler, calmer, and ready to speak other languages.**
+
+### Heat
+
+- **Keep the phone cool**, on by default in Settings → Behaviour. maik answers using half
+  the processor cores instead of all of them: a little slower, far less heat. Turn it off
+  for the fastest possible replies.
+- **maik stops if the phone overheats.** It watches Android's own temperature reading and
+  ends the reply rather than making things worse, and says so in the chat.
+- **Replies can no longer run away.** A reply is capped at half the context window, which
+  is more than any answer needs and stops a looping model cooking the phone for minutes.
+
+### Motion
+
+- New messages rise into place instead of appearing; chat history you already had stays
+  still when you open a chat.
+- The typing dots fade into the first words rather than blinking out.
+- "Jump to latest" rises and scales in.
+- An empty chat sits in the middle of the screen again.
+
+### Language
+
+- **All text now lives in resource files** — about 200 strings — so maik can be translated.
+  English stays the source language; nothing has changed on screen.
+
+---
+
 ## 2.1.0 — 17 September 2026
 
 **The chat grows up.**

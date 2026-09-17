@@ -24,11 +24,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.maik.app.*
+import com.maik.app.R
 import com.maik.app.data.*
 import com.maik.app.engine.*
 import com.maik.app.ui.chat.*
@@ -82,34 +84,33 @@ fun SetupScreen(vm: ChatViewModel) {
             is Stage.NeedsModel -> RisesIn(key = "needs") {
                 Column {
                     Text(
-                        "maik carries its own brain. Fetch it once, then it works " +
-                            "forever with the network off.",
+                        stringResource(R.string.setup_maik_carries_its_own_brain),
                         style = MaterialTheme.typography.bodyLarge,
                         color = scheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
                     Spacer(Modifier.height(22.dp))
-                    SpecRow("MODEL", spec.label)
-                    SpecRow("SIZE", "${spec.approxMb} MB, once")
-                    SpecRow("AFTER", "Fully offline")
+                    SpecRow(stringResource(R.string.setup_model), spec.label)
+                    SpecRow(stringResource(R.string.setup_size), stringResource(R.string.setup_mb_once, spec.approxMb))
+                    SpecRow(stringResource(R.string.setup_after), stringResource(R.string.setup_fully_offline))
                     Spacer(Modifier.height(26.dp))
-                    BigButton("Download ${spec.label}") {
+                    BigButton(stringResource(R.string.setup_download, spec.label)) {
                         guardedStart(vm::startDownload)
                     }
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        "Wi-Fi recommended. Nothing you type is ever uploaded.",
+                        stringResource(R.string.setup_wi_fi_recommended_nothing_you),
                         style = MaterialTheme.typography.bodyMedium,
                         color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                     )
                     Spacer(Modifier.height(20.dp))
-                    QuietAction("Choose a different model", vm::openModels)
+                    QuietAction(stringResource(R.string.setup_choose_a_different_model), vm::openModels)
                 }
             }
 
             is Stage.Downloading -> {
                 val started = s.bytes > 0
                 Text(
-                    if (started) "Downloading ${spec.label}" else "Starting…",
+                    if (started) stringResource(R.string.setup_downloading, spec.label) else stringResource(R.string.setup_starting),
                     style = MaterialTheme.typography.headlineSmall,
                     color = scheme.onBackground
                 )
@@ -118,8 +119,8 @@ fun SetupScreen(vm: ChatViewModel) {
                 Spacer(Modifier.height(12.dp))
                 Row(Modifier.fillMaxWidth()) {
                     Text(
-                        if (started) "${s.bytes / 1024 / 1024} / ${s.total / 1024 / 1024} MB"
-                        else "Connecting",
+                        if (started) stringResource(R.string.setup_mb, s.bytes / 1024 / 1024, s.total / 1024 / 1024)
+                        else stringResource(R.string.setup_connecting),
                         style = MaterialTheme.typography.bodyMedium,
                         color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                     )
@@ -134,23 +135,23 @@ fun SetupScreen(vm: ChatViewModel) {
                 }
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    "Keeps going if you lock the screen or leave the app.",
+                    stringResource(R.string.setup_keeps_going_if_you_lock),
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                 )
                 Spacer(Modifier.height(22.dp))
-                OutlineButton("Cancel", vm::cancelDownload)
+                OutlineButton(stringResource(R.string.setup_cancel), vm::cancelDownload)
             }
 
             is Stage.Loading -> {
                 Text(
-                    "Warming up ${spec.label}",
+                    stringResource(R.string.setup_warming_up, spec.label),
                     style = MaterialTheme.typography.headlineSmall,
                     color = scheme.onBackground
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "First load takes a moment. It's quicker after this.",
+                    stringResource(R.string.setup_first_load_takes_a_moment),
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                 )
@@ -169,26 +170,25 @@ fun SetupScreen(vm: ChatViewModel) {
             is Stage.Ready -> RisesIn(key = "ready") {
                 Column {
                     Text(
-                        "${spec.label} is ready",
+                        stringResource(R.string.setup_is_ready, spec.label),
                         style = MaterialTheme.typography.headlineSmall,
                         color = scheme.onBackground
                     )
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        "It lives on this phone now. You can turn the network off " +
-                            "and it will keep answering.",
+                        stringResource(R.string.setup_it_lives_on_this_phone),
                         style = MaterialTheme.typography.bodyLarge,
                         color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                     )
                     Spacer(Modifier.height(26.dp))
-                    BigButton("Start chatting", onClick = vm::acknowledgeInstall)
+                    BigButton(stringResource(R.string.setup_start_chatting), onClick = vm::acknowledgeInstall)
                 }
             }
         }
 
         if (vm.stage !is Stage.Ready) {
             Spacer(Modifier.height(24.dp))
-            QuietAction(if (vm.conversations.isEmpty()) "Not now" else "Back", vm::back)
+            QuietAction(if (vm.conversations.isEmpty()) stringResource(R.string.setup_not_now) else stringResource(R.string.setup_back), vm::back)
         }
     }
 
@@ -199,13 +199,10 @@ fun SetupScreen(vm: ChatViewModel) {
                 pending = null
             },
             containerColor = scheme.surfaceVariant,
-            title = { DialogTitle("Show download progress?") },
+            title = { DialogTitle(stringResource(R.string.setup_show_download_progress)) },
             text = {
                 Text(
-                    "${spec.approxMb} MB takes a while. A notification lets you watch " +
-                        "it fill up and cancel it without coming back here — and it is " +
-                        "the only notification maik will ever post.\n\n" +
-                        "Say no and the download still runs exactly the same.",
+                    stringResource(R.string.setup_mb_takes_a_while_a, spec.approxMb),
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
@@ -215,13 +212,13 @@ fun SetupScreen(vm: ChatViewModel) {
                     explainNotifications = false
                     notifications?.invoke()
                     startNow()
-                }) { Text("Show progress", color = scheme.primary) }
+                }) { Text(stringResource(R.string.setup_show_progress), color = scheme.primary) }
             },
             dismissButton = {
                 TextButton(onClick = {
                     explainNotifications = false
                     startNow()
-                }) { Text("Not now", color = scheme.onSurfaceVariant) }
+                }) { Text(stringResource(R.string.setup_not_now), color = scheme.onSurfaceVariant) }
             }
         )
     }
@@ -233,11 +230,10 @@ fun SetupScreen(vm: ChatViewModel) {
                 pending = null
             },
             containerColor = scheme.surfaceVariant,
-            title = { DialogTitle("You are not on Wi-Fi") },
+            title = { DialogTitle(stringResource(R.string.setup_you_are_not_on_wi)) },
             text = {
                 Text(
-                    "This will pull ${spec.approxMb} MB over a metered connection. " +
-                        "That is a real hole in most data plans.",
+                    stringResource(R.string.setup_this_will_pull_mb_over, spec.approxMb),
                     style = MaterialTheme.typography.bodyMedium,
                     color = scheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
@@ -246,14 +242,14 @@ fun SetupScreen(vm: ChatViewModel) {
                 TextButton(onClick = {
                     warnMetered = false
                     begin()
-                }) { Text("Download anyway", color = scheme.error) }
+                }) { Text(stringResource(R.string.setup_download_anyway), color = scheme.error) }
             },
             dismissButton = {
                 TextButton(onClick = {
                     warnMetered = false
                     pending = null
                 }) {
-                    Text("Wait for Wi-Fi", color = scheme.primary)
+                    Text(stringResource(R.string.setup_wait_for_wi_fi), color = scheme.primary)
                 }
             }
         )
@@ -267,7 +263,7 @@ private fun BrokenState(vm: ChatViewModel, stage: Stage.Broken, onRefetch: () ->
 
     Column {
         Text(
-            "That didn't work",
+            stringResource(R.string.setup_that_didn_t_work),
             style = MaterialTheme.typography.headlineSmall,
             color = scheme.error
         )
@@ -281,7 +277,7 @@ private fun BrokenState(vm: ChatViewModel, stage: Stage.Broken, onRefetch: () ->
         if (stage.detail.isNotBlank()) {
             Spacer(Modifier.height(10.dp))
             Text(
-                if (showDetail) "Hide details" else "Show details",
+                if (showDetail) stringResource(R.string.setup_hide_details) else stringResource(R.string.setup_show_details),
                 style = MaterialTheme.typography.labelSmall,
                 color = scheme.primary,
                 modifier = Modifier
@@ -303,12 +299,12 @@ private fun BrokenState(vm: ChatViewModel, stage: Stage.Broken, onRefetch: () ->
 
         Spacer(Modifier.height(26.dp))
         when (stage.fix) {
-            Fix.RESUME_DOWNLOAD -> BigButton("Continue download", onClick = onRefetch)
-            Fix.REDOWNLOAD -> BigButton("Download again", onClick = onRedownload)
-            Fix.RETRY_LOAD -> BigButton("Try again", onClick = vm::retry)
+            Fix.RESUME_DOWNLOAD -> BigButton(stringResource(R.string.setup_continue_download), onClick = onRefetch)
+            Fix.REDOWNLOAD -> BigButton(stringResource(R.string.setup_download_again), onClick = onRedownload)
+            Fix.RETRY_LOAD -> BigButton(stringResource(R.string.setup_try_again), onClick = vm::retry)
         }
         Spacer(Modifier.height(12.dp))
-        QuietAction("Try a different model", vm::openModels)
+        QuietAction(stringResource(R.string.setup_try_a_different_model), vm::openModels)
     }
 }
 

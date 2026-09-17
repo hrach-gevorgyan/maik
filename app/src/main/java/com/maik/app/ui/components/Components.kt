@@ -13,6 +13,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
@@ -28,6 +29,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.maik.app.*
+import com.maik.app.R
 import com.maik.app.data.*
 import com.maik.app.engine.*
 import com.maik.app.ui.chat.*
@@ -113,7 +115,7 @@ fun OnDevicePill() {
         )
         Spacer(Modifier.width(7.dp))
         Text(
-            "ON-DEVICE",
+            stringResource(R.string.common_on_device),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
         )
@@ -126,6 +128,7 @@ fun TopBar(
     onBack: (() -> Unit)? = null,
     trailing: @Composable (() -> Unit)? = null
 ) {
+    val back = stringResource(R.string.common_back)
     Row(
         Modifier
             .fillMaxWidth()
@@ -137,7 +140,7 @@ fun TopBar(
                 Modifier
                     .size(48.dp)
                     .clip(CircleShape)
-                    .semantics { contentDescription = "Back" }
+                    .semantics { contentDescription = back }
                     .clickable(onClick = onBack),
                 contentAlignment = Alignment.Center
             ) { ChevronLeft(MaterialTheme.colorScheme.onBackground) }

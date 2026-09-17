@@ -156,6 +156,35 @@ private fun vibratorOf(context: android.content.Context): android.os.Vibrator? =
         context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
     }
 
+/**
+ * Arrives once: a message, a card, anything new on screen. It rises a little and
+ * settles, which reads as "this just happened" without drawing attention to itself.
+ */
+@Composable
+fun AppearsIn(content: @Composable () -> Unit) {
+    val progress = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(Unit) {
+        progress.animateTo(
+            1f,
+            androidx.compose.animation.core.spring(
+                dampingRatio = 0.78f,
+                stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+            )
+        )
+    }
+    androidx.compose.foundation.layout.Box(
+        Modifier.graphicsLayer {
+            val p = progress.value
+            alpha = p
+            // A few pixels of travel, scaled to the element, not a slide across the screen.
+            translationY = (1f - p) * 26f
+            scaleX = 0.96f + 0.04f * p
+            scaleY = 0.96f + 0.04f * p
+            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
+        }
+    ) { content() }
+}
+
 /** Convenience for the many places that need their own interaction source. */
 @Composable
 fun rememberPressSource(): MutableInteractionSource =
