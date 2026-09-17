@@ -7,6 +7,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalContext
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -536,6 +541,54 @@ private fun StoragePage(vm: ChatViewModel) {
                 OutlineButton(stringResource(R.string.settings_manage_models)) { vm.openSettingsPage(SettingsPage.Models) }
             }
             item {
+                val context = LocalContext.current
+                val scope = rememberCoroutineScope()
+                val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+                    if (uri == null) return@rememberLauncherForActivityResult
+                    val json = vm.backupJson()
+                    scope.launch {
+                        val ok = withContext(Dispatchers.IO) {
+                            runCatching {
+                                context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) } != null
+                            }.getOrDefault(false)
+                        }
+                        toast(context, context.getString(if (ok) R.string.settings_backup_done else R.string.settings_backup_failed))
+                    }
+                }
+                val open = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                    if (uri == null) return@rememberLauncherForActivityResult
+                    scope.launch {
+                        val text = withContext(Dispatchers.IO) {
+                            runCatching {
+                                context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+                            }.getOrNull()
+                        }
+                        val added = text?.let(vm::restoreJson)
+                        toast(
+                            context,
+                            if (added == null) context.getString(R.string.settings_restore_failed)
+                            else context.resources.getQuantityString(R.plurals.settings_restore_done, added, added)
+                        )
+                    }
+                }
+                Spacer(Modifier.height(24.dp))
+                Text(
+                    stringResource(R.string.settings_backup_explainer),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
+                )
+                Spacer(Modifier.height(12.dp))
+                if (vm.conversations.isNotEmpty()) {
+                    OutlineButton(stringResource(R.string.settings_backup_chats)) {
+                        save.launch("maik-chats.json")
+                    }
+                    Spacer(Modifier.height(10.dp))
+                }
+                OutlineButton(stringResource(R.string.settings_restore_chats)) {
+                    open.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+                }
+            }
+            item {
                 Spacer(Modifier.height(24.dp))
                 if (vm.conversations.isNotEmpty()) {
                     OutlineButton(
@@ -775,4 +828,8 @@ private fun ToggleRow(
             )
         )
     }
+}
+
+private fun toast(context: android.content.Context, text: String) {
+    android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
 }

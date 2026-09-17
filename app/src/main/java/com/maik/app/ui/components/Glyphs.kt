@@ -78,3 +78,25 @@ fun Sliders(tint: Color) {
         }
     }
 }
+
+@Composable
+fun Magnifier(tint: Color) {
+    Canvas(Modifier.size(20.dp)) {
+        val w = size.width
+        val s = w * 0.11f
+        drawCircle(tint, radius = w * 0.3f, center = Offset(w * 0.42f, w * 0.42f), style = androidx.compose.ui.graphics.drawscope.Stroke(s))
+        drawLine(tint, Offset(w * 0.64f, w * 0.64f), Offset(w * 0.88f, w * 0.88f), s, StrokeCap.Round)
+    }
+}
+
+@Composable
+fun ChevronVertical(tint: Color, up: Boolean) {
+    Canvas(Modifier.size(18.dp)) {
+        val w = size.width
+        val s = w * 0.13f
+        val tip = if (up) w * 0.3f else w * 0.7f
+        val base = if (up) w * 0.66f else w * 0.34f
+        drawLine(tint, Offset(w * 0.1f, base), Offset(w * 0.5f, tip), s, StrokeCap.Round)
+        drawLine(tint, Offset(w * 0.5f, tip), Offset(w * 0.9f, base), s, StrokeCap.Round)
+    }
+}

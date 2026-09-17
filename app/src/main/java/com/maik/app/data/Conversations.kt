@@ -125,6 +125,13 @@ fun filterConversations(all: List<Conversation>, query: String): List<Conversati
     }
 }
 
+/** Indices of the messages in [messages] that contain [query], oldest first. */
+fun findInMessages(messages: List<Message>, query: String): List<Int> {
+    val q = query.trim()
+    if (q.isEmpty()) return emptyList()
+    return messages.indices.filter { messages[it].text.contains(q, ignoreCase = true) }
+}
+
 /**
  * Reads a saved history, keeping every conversation that still parses even when others
  * in the same file don't. Returns null when the text isn't a list at all.

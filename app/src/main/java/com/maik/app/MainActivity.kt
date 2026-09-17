@@ -55,6 +55,11 @@ class MainActivity : ComponentActivity() {
 
     /** Only the download notification lands on the download; nothing else jumps there. */
     private fun handle(intent: Intent?) {
+        if (intent?.action == ACTION_NEW_CHAT) {
+            intent.action = null
+            vm.newChat()
+            return
+        }
         if (intent?.getStringExtra(EXTRA_OPEN) == OPEN_DOWNLOAD) {
             intent.removeExtra(EXTRA_OPEN)
             if (DownloadBus.running.value) vm.showDownload()
@@ -64,6 +69,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_OPEN = "open"
         const val OPEN_DOWNLOAD = "download"
+        const val ACTION_NEW_CHAT = "com.maik.app.NEW_CHAT"
     }
 }
 

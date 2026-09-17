@@ -105,6 +105,17 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     var useGpu by mutableStateOf(false)
         private set
 
+    /** Whether replies are asked to be brief. */
+    var shortAnswers by mutableStateOf(true)
+        private set
+
+    fun toggleAnswerLength() {
+        shortAnswers = !shortAnswers
+        store.setShortAnswers(shortAnswers)
+        // The instruction is fixed when a conversation starts; the next message starts a new one.
+        viewModelScope.launch { endSession() }
+    }
+
     /** Eases off when the phone gets warm. */
     var keepCool by mutableStateOf(true)
         private set
@@ -216,6 +227,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         hapticsEnabled = store.haptics
         debugMode = store.debug
         keepCool = store.keepCool
+        shortAnswers = store.shortAnswers
         Thermal.watch(app.applicationContext)
         watchHeat()
 
@@ -490,6 +502,43 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         bumpToTop(convo.id)
         persist()
         generate(convo.id, freshSession = true)
+    }
+
+    /** A chat as plain text, for sharing into any other app. */
+    fun chatAsText(id: String): String {
+        val convo = conversations.firstOrNull { it.id == id } ?: return ""
+        val you = text(R.string.export_you)
+        val maik = text(R.string.export_maik)
+        return buildString {
+            appendLine(convo.title)
+            convo.messages.filterNot { it.isError }.forEach { m ->
+                appendLine()
+                appendLine(if (m.fromUser) "$you:" else "$maik:")
+                appendLine(m.text)
+            }
+        }.trim()
+    }
+
+    /** Every chat as the same JSON maik keeps on disk. */
+    fun backupJson(): String = historyJson.encodeToString(
+        kotlinx.serialization.builtins.ListSerializer(Conversation.serializer()),
+        conversations.toList()
+    )
+
+    /**
+     * Adds chats from a backup. A chat already here is kept as it is; nothing is ever
+     * overwritten or deleted. Returns how many were added, or null if the file isn't one.
+     */
+    fun restoreJson(json: String): Int? {
+        val restored = decodeConversations(historyJson, json) ?: return null
+        val have = conversations.map { it.id }.toSet()
+        val fresh = restored.filterNot { it.id in have }
+        conversations.addAll(fresh)
+        val sorted = conversations.sortedByDescending { it.updatedAt }
+        conversations.clear()
+        conversations.addAll(sorted)
+        persist()
+        return fresh.size
     }
 
     fun rename(id: String, title: String) {
@@ -943,7 +992,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val fresh = withContext(NonCancellable) {
             LocalEngine.conversation(
             ConversationConfig(
-                systemInstruction = Contents.of(systemPrompt),
+                // Answer length is a standing instruction, not part of your message: a
+                // small model reads an added line as something to comment on.
+                systemInstruction = Contents.of(
+                    systemPrompt + "\n\n" +
+                        text(if (shortAnswers) R.string.style_short_instruction else R.string.style_detailed_instruction)
+                ),
                 initialMessages = recent.map {
                     if (it.fromUser) LmMessage.user(it.text) else LmMessage.model(it.text)
                 },

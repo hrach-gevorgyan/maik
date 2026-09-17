@@ -23,6 +23,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.maik.app.*
@@ -42,6 +45,7 @@ internal fun Composer(
     busy: Boolean,
     ready: Boolean,
     waitingHint: String = "",
+    focusRequester: androidx.compose.ui.focus.FocusRequester? = null,
     onSend: () -> Unit,
     onStop: () -> Unit
 ) {
@@ -78,15 +82,22 @@ internal fun Composer(
                     color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                 )
             }
+            // Text set from outside (a starter) puts the cursor at its end, ready to type on.
+            var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
+            if (field.text != value) field = TextFieldValue(value, TextRange(value.length))
             BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
+                value = field,
+                onValueChange = {
+                    field = it
+                    onValueChange(it.text)
+                },
                 enabled = true,
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
                 cursorBrush = SolidColor(scheme.primary),
                 maxLines = 5,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                     .semantics { contentDescription = messageBox }
             )
         }

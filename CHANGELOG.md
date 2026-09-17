@@ -7,6 +7,30 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 2.7.0 — 17 September 2026
+
+**Faster to reach, quicker to use.**
+
+- **One-tap starters** on a new chat — Translate, Explain simply, Summarise, Write a
+  message. Each fills in the start of your message and puts the cursor after it.
+- **Short or detailed answers**, one tap above the message box. Short is the default:
+  quicker, cooler, and usually what a phone question needs.
+- **Search inside a chat.** The magnifier in the header finds every message that
+  mentions a word, outlines them, and jumps between them.
+- **Search the chat list** as soon as there is more than one chat.
+- **Share a whole chat** as plain text, from the chat list's long-press menu.
+- **Save all chats to a file, and restore them** — to keep them safe or move them to a
+  new phone. Restoring never overwrites a chat you already have.
+- **Long-press the app icon** for "New chat", and add **Ask maik** to Quick Settings.
+
+### Fixed
+
+- Starters and the answer-length setting are handed to the model as instructions rather
+  than added to your message, which made the small model describe your question instead of
+  answering it.
+
+---
+
 ## 2.6.0 — 17 September 2026
 
 **A third pass: every journey walked end to end, and checked on a device this time.**

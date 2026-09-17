@@ -14,6 +14,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -36,6 +40,8 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -75,6 +81,13 @@ internal fun ChatScreen(vm: ChatViewModel) {
     }
     val count = convo.messages.size
     var pickingModel by remember { mutableStateOf(false) }
+    val composerFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    var searching by rememberSaveable(convo.id) { mutableStateOf(false) }
+    var findQuery by rememberSaveable(convo.id) { mutableStateOf("") }
+    var findPosition by rememberSaveable(convo.id) { mutableStateOf(0) }
+    val matches = remember(convo.messages, findQuery) { findInMessages(convo.messages, findQuery) }
+    // Newest match first: that's the one nearest the bottom, where you already are.
+    val currentMatch = matches.getOrNull(matches.size - 1 - findPosition.coerceIn(0, (matches.size - 1).coerceAtLeast(0)))
     var menuFor by remember { mutableStateOf<Int?>(null) }
     var selectingText by remember { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf<Int?>(null) }
@@ -98,10 +111,36 @@ internal fun ChatScreen(vm: ChatViewModel) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        TopBar(
+        if (searching) {
+            FindBar(
+                query = findQuery,
+                onQuery = {
+                    findQuery = it
+                    findPosition = 0
+                },
+                count = matches.size,
+                position = findPosition,
+                onPrevious = { if (matches.isNotEmpty()) findPosition = (findPosition + 1) % matches.size },
+                onNext = { if (matches.isNotEmpty()) findPosition = (findPosition - 1 + matches.size) % matches.size },
+                onClose = {
+                    searching = false
+                    findQuery = ""
+                    findPosition = 0
+                }
+            )
+            androidx.activity.compose.BackHandler {
+                searching = false
+                findQuery = ""
+            }
+        } else TopBar(
             title = convo.title,
             onBack = vm::openList,
             trailing = {
+                if (convo.messages.isNotEmpty()) {
+                    MaikIconButton(description = stringResource(R.string.find_in_chat), onClick = { searching = true }) {
+                        Magnifier(MaterialTheme.colorScheme.onBackground)
+                    }
+                }
                 // Tapping the model name swaps which one answers in this chat.
                 Text(
                     vm.modelFor(convo).label,
@@ -117,6 +156,16 @@ internal fun ChatScreen(vm: ChatViewModel) {
         )
 
         StatusStrip(vm, vm.modelFor(convo))
+
+        LaunchedEffect(currentMatch, searching) {
+            val target = currentMatch ?: return@LaunchedEffect
+            if (!searching) return@LaunchedEffect
+            val last = convo.messages.lastOrNull()
+            val above = (if (!vm.busy && last != null && vm.stage is Stage.Ready) 1 else 0) +
+                (if (vm.stoppedForHeat) 1 else 0) +
+                (if (vm.busy) 1 else 0)
+            listState.animateScrollToItem(above + (convo.messages.lastIndex - target))
+        }
 
         Box(Modifier.weight(1f)) {
         LazyColumn(
@@ -210,7 +259,15 @@ internal fun ChatScreen(vm: ChatViewModel) {
                     Column(Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)) {
                         val body = @Composable {
                             Column {
-                                Bubble(msg, onLongPress = { menuFor = index })
+                                Bubble(
+                                    msg,
+                                    onLongPress = { menuFor = index },
+                                    match = when {
+                                        !searching || index !in matches -> Match.None
+                                        index == currentMatch -> Match.Current
+                                        else -> Match.Other
+                                    }
+                                )
                                 if (vm.debugMode && msg.stats != null) SpeedLine(msg.stats)
                             }
                         }
@@ -228,7 +285,18 @@ internal fun ChatScreen(vm: ChatViewModel) {
         // lands instead of hugging the message box.
         if (convo.messages.isEmpty() && !vm.busy) {
             Box(Modifier.fillMaxSize().padding(horizontal = 20.dp), contentAlignment = Alignment.Center) {
-                ChatEmptyState(vm.modelFor(convo).label, ready = vm.stage is Stage.Ready)
+                ChatEmptyState(
+                    vm.modelFor(convo).label,
+                    ready = vm.stage is Stage.Ready,
+                    onStarter = { prefix ->
+                        input = prefix
+                        // Straight into typing the rest, keyboard up.
+                        scope.launch {
+                            withFrameNanos { }
+                            runCatching { composerFocus.requestFocus() }
+                        }
+                    }
+                )
             }
         }
 
@@ -332,11 +400,14 @@ internal fun ChatScreen(vm: ChatViewModel) {
             if (choice.chatId == convo.id) ModelSwitchDialog(choice, onDismiss = vm::dismissSwitch, onChoose = vm::resolveSwitch)
         }
 
+        AnswerLengthToggle(vm.shortAnswers, vm::toggleAnswerLength)
+
         Composer(
             value = input,
             onValueChange = { input = it },
             busy = vm.busy,
             ready = vm.stage is Stage.Ready,
+            focusRequester = composerFocus,
             waitingHint = when (vm.stage) {
                 is Stage.NeedsModel -> stringResource(R.string.chat_hint_needs_model)
                 is Stage.Broken -> stringResource(R.string.chat_hint_broken)
@@ -463,8 +534,9 @@ private fun StripAction(label: String, onClick: () -> Unit) {
     )
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ChatEmptyState(modelLabel: String, ready: Boolean) {
+private fun ChatEmptyState(modelLabel: String, ready: Boolean, onStarter: (String) -> Unit) {
     Column {
         Wordmark(size = 44)
         Spacer(Modifier.height(10.dp))
@@ -475,6 +547,72 @@ private fun ChatEmptyState(modelLabel: String, ready: Boolean) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f)
         )
+        Spacer(Modifier.height(20.dp))
+        // The things people most often want from a phone with no signal. Each one starts
+        // the message rather than sending it, so it can be finished in your own words.
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf(
+                R.string.starter_translate to R.string.starter_translate_prefix,
+                R.string.starter_explain to R.string.starter_explain_prefix,
+                R.string.starter_summarise to R.string.starter_summarise_prefix,
+                R.string.starter_message to R.string.starter_message_prefix
+            ).forEach { (label, prefix) ->
+                val text = stringResource(prefix)
+                StarterChip(stringResource(label)) { onStarter(text) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StarterChip(label: String, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val buzz = tap()
+    Text(
+        label,
+        style = MaterialTheme.typography.labelLarge,
+        color = scheme.onSurface,
+        modifier = Modifier
+            .minimumInteractiveComponentSize()
+            .clip(CircleShape)
+            .border(1.dp, scheme.outline, CircleShape)
+            .clickable(role = Role.Button) {
+                buzz()
+                onClick()
+            }
+            .padding(horizontal = 16.dp, vertical = 10.dp)
+    )
+}
+
+/** Short or detailed replies, one tap to switch; it applies from the next message. */
+@Composable
+private fun AnswerLengthToggle(short: Boolean, onToggle: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val buzz = tap()
+    val hint = stringResource(R.string.style_toggle_hint)
+    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.Start) {
+        AnimatedContent(
+            targetState = short,
+            transitionSpec = { fadeIn(tween(Motion.NORMAL)) togetherWith fadeOut(tween(Motion.QUICK)) },
+            label = "answerLength"
+        ) { isShort ->
+            Text(
+                stringResource(if (isShort) R.string.style_short else R.string.style_detailed),
+                style = MaterialTheme.typography.labelSmall,
+                color = scheme.primary,
+                modifier = Modifier
+                    .minimumInteractiveComponentSize()
+                    .clip(CircleShape)
+                    .clickable(role = Role.Switch, onClickLabel = hint) {
+                        buzz()
+                        onToggle()
+                    }
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            )
+        }
     }
 }
 
@@ -632,4 +770,71 @@ private fun SpeedLine(stats: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f),
         modifier = Modifier.padding(start = 8.dp, top = 4.dp)
     )
+}
+
+/** Search within the open chat: the query, where you are among the matches, and up/down. */
+@Composable
+private fun FindBar(
+    query: String,
+    onQuery: (String) -> Unit,
+    count: Int,
+    position: Int,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+    onClose: () -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val label = stringResource(R.string.find_in_chat)
+    LaunchedEffect(Unit) {
+        withFrameNanos { }
+        runCatching { focus.requestFocus() }
+    }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        MaikIconButton(description = stringResource(R.string.find_close), onClick = onClose) {
+            ChevronLeft(scheme.onBackground)
+        }
+        Box(Modifier.weight(1f).padding(horizontal = 4.dp)) {
+            if (query.isEmpty()) {
+                Text(label, style = MaterialTheme.typography.bodyLarge, color = scheme.onSurfaceVariant.copy(alpha = 0.64f))
+            }
+            androidx.compose.foundation.text.BasicTextField(
+                value = query,
+                onValueChange = onQuery,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
+                cursorBrush = androidx.compose.ui.graphics.SolidColor(scheme.primary),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    imeAction = androidx.compose.ui.text.input.ImeAction.Search
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focus)
+                    .semantics { contentDescription = label }
+            )
+        }
+        if (query.isNotBlank()) {
+            Text(
+                if (count == 0) stringResource(R.string.find_no_matches)
+                else stringResource(R.string.find_position, position + 1, count),
+                style = MaterialTheme.typography.labelSmall,
+                color = scheme.onSurfaceVariant.copy(alpha = 0.7f),
+                modifier = Modifier
+                    .padding(horizontal = 6.dp)
+                    .semantics { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite }
+            )
+            MaikIconButton(description = stringResource(R.string.find_previous), onClick = onPrevious) {
+                ChevronVertical(if (count > 1) scheme.onBackground else scheme.outline, up = true)
+            }
+            MaikIconButton(description = stringResource(R.string.find_next), onClick = onNext) {
+                ChevronVertical(if (count > 1) scheme.onBackground else scheme.outline, up = false)
+            }
+        }
+    }
+    HorizontalLine()
 }

@@ -60,6 +60,7 @@ import com.maik.app.ui.theme.*
 fun ConversationListScreen(vm: ChatViewModel) {
     val scheme = MaterialTheme.colorScheme
     val buzz = tap()
+    val context = androidx.compose.ui.platform.LocalContext.current
     var menuFor by remember { mutableStateOf<Conversation?>(null) }
     var renaming by remember { mutableStateOf<Conversation?>(null) }
     var confirmDelete by remember { mutableStateOf<Conversation?>(null) }
@@ -80,7 +81,7 @@ fun ConversationListScreen(vm: ChatViewModel) {
         HorizontalLine()
 
         // Search only earns its space once there is enough to search through.
-        if (vm.conversations.size >= 5 || vm.query.isNotBlank()) {
+        if (vm.conversations.size >= 2 || vm.query.isNotBlank()) {
             Box(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                 SearchField(vm.query) { vm.query = it }
             }
@@ -148,6 +149,10 @@ fun ConversationListScreen(vm: ChatViewModel) {
             actions = listOf(
                 SheetAction(if (convo.pinned) stringResource(R.string.list_unpin) else stringResource(R.string.list_pin_to_top)) {
                     vm.togglePin(convo.id)
+                    menuFor = null
+                },
+                SheetAction(stringResource(R.string.list_share_chat)) {
+                    shareText(context, vm.chatAsText(convo.id))
                     menuFor = null
                 },
                 SheetAction(stringResource(R.string.list_rename)) {

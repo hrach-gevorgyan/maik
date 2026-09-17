@@ -15,6 +15,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.onLongClick
@@ -42,10 +43,11 @@ import com.maik.app.ui.theme.*
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun Bubble(msg: Message, onLongPress: (() -> Unit)? = null) {
+internal fun Bubble(msg: Message, onLongPress: (() -> Unit)? = null, match: Match = Match.None) {
     val scheme = MaterialTheme.colorScheme
     val buzz = tap()
     val optionsLabel = stringResource(R.string.chat_message_options)
+    val ring = if (msg.fromUser) scheme.onBackground else scheme.primary
 
     val bg = when {
         msg.isError -> scheme.error.copy(alpha = 0.12f)
@@ -71,6 +73,14 @@ internal fun Bubble(msg: Message, onLongPress: (() -> Unit)? = null) {
                     else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
                 )
                 .background(bg)
+                .then(
+                    when (match) {
+                        Match.None -> Modifier
+                        // Your bubbles are already the accent colour, so their outline is ink.
+                        Match.Other -> Modifier.border(1.5.dp, ring.copy(alpha = 0.45f), bubbleShape(msg))
+                        Match.Current -> Modifier.border(2.5.dp, ring, bubbleShape(msg))
+                    }
+                )
                 // Long press only: a tap does nothing, so TalkBack must not offer one.
                 .then(
                     if (onLongPress == null) Modifier
@@ -99,6 +109,13 @@ internal fun Bubble(msg: Message, onLongPress: (() -> Unit)? = null) {
         }
     }
 }
+
+/** How a bubble relates to the search in progress. */
+enum class Match { None, Other, Current }
+
+private fun bubbleShape(msg: Message) =
+    if (msg.fromUser) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp)
+    else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)
 
 /** The full message, selectable word by word, for copying part of an answer. */
 @OptIn(ExperimentalMaterial3Api::class)

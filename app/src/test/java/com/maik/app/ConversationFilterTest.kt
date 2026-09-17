@@ -3,6 +3,7 @@ package com.maik.app
 import com.maik.app.data.Conversation
 import com.maik.app.data.Message
 import com.maik.app.data.filterConversations
+import com.maik.app.data.findInMessages
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -26,5 +27,17 @@ class ConversationFilterTest {
     @Test
     fun `no match is an empty list, not an error`() {
         assertEquals(emptyList<Conversation>(), filterConversations(listOf(trip, code, food), "zzz"))
+    }
+
+    @Test
+    fun `find in chat returns every matching message, oldest first`() {
+        val messages = listOf(
+            Message("Where is the train station?", fromUser = true),
+            Message("The station is north of the square.", fromUser = false),
+            Message("Thanks", fromUser = true)
+        )
+        assertEquals(listOf(0, 1), findInMessages(messages, " STATION "))
+        assertEquals(emptyList<Int>(), findInMessages(messages, ""))
+        assertEquals(emptyList<Int>(), findInMessages(messages, "airport"))
     }
 }

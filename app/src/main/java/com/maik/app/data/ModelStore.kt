@@ -172,6 +172,15 @@ class ModelStore(context: Context) {
         prefs.edit().putBoolean("haptics", enabled).apply()
     }
 
+    /** Short answers by default: quicker, cooler, and what a phone question usually needs. */
+    var shortAnswers: Boolean = prefs.getBoolean("short", true)
+        private set
+
+    fun setShortAnswers(enabled: Boolean) {
+        shortAnswers = enabled
+        prefs.edit().putBoolean("short", enabled).apply()
+    }
+
     fun setKeepCool(enabled: Boolean) {
         keepCool = enabled
         prefs.edit().putBoolean("cool", enabled).apply()
