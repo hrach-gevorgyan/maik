@@ -69,6 +69,29 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     private val store = ModelStore(app.applicationContext)
     private val chats = ChatStore(app.applicationContext)
+    private val photos = Photos(app.applicationContext)
+
+    /** A photo chosen for the next message, not yet sent. */
+    var pendingPhoto by mutableStateOf<String?>(null)
+        private set
+
+    /** Whether the model that would answer in the open chat can look at photos. */
+    val canSeePhotos: Boolean get() = modelFor(current).vision
+
+    /** Where the camera writes before the photo is imported. */
+    fun cameraTarget(): java.io.File = photos.cameraTarget()
+
+    /** Copies and shrinks a photo for the next message. */
+    fun attachPhoto(uri: android.net.Uri, onFailed: () -> Unit) {
+        viewModelScope.launch {
+            val file = withContext(Dispatchers.IO) { photos.importFrom(uri) }
+            if (file == null) onFailed() else pendingPhoto = file.absolutePath
+        }
+    }
+
+    fun removePendingPhoto() {
+        pendingPhoto = null
+    }
 
     val conversations = mutableStateListOf<Conversation>()
 
@@ -820,16 +843,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     /* ---------- generation ---------- */
 
     fun send(text: String) {
-        val prompt = text.trim()
+        val photo = pendingPhoto
+        val prompt = text.trim().ifEmpty { if (photo != null) text(R.string.photo_default_question) else "" }
         val convo = current ?: return
         if (prompt.isEmpty() || busy) return
+        pendingPhoto = null
 
         val isFirst = convo.messages.isEmpty()
         replace(convo.id) {
             it.copy(
                 title = if (isFirst) Conversation.titleFrom(prompt) else it.title,
                 modelId = it.modelId ?: target.id,
-                messages = it.messages + Message(prompt, fromUser = true),
+                messages = it.messages + Message(prompt, fromUser = true, imagePath = photo),
                 updatedAt = System.currentTimeMillis()
             )
         }
@@ -907,7 +932,13 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 // Not cancellable: the native call must wind down before anything can
                 // close the conversation. stop() ends it early through cancelProcess().
                 withContext(Dispatchers.Default + NonCancellable) {
-                    conversation.sendMessageAsync(prompt).collect { chunk ->
+                    val image = convo.messages.last().imagePath?.takeIf { model.vision && java.io.File(it).exists() }
+                    val input = if (image != null) {
+                        Contents.of(Content.ImageFile(image), Content.Text(prompt))
+                    } else {
+                        Contents.of(prompt)
+                    }
+                    conversation.sendMessageAsync(input).collect { chunk ->
                         val piece = textOf(chunk)
                         if (piece.isEmpty()) return@collect
                         val now = SystemClock.elapsedRealtime()
@@ -1111,6 +1142,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         // Saving before history has loaded would replace it with whatever is in memory.
         if (!chatsLoaded) return
         val snapshot = conversations.toList()
+        val kept = snapshot.flatMap { c -> c.messages.mapNotNull { it.imagePath } }.toSet() + listOfNotNull(pendingPhoto)
+        LocalEngine.scope.launch(Dispatchers.IO) { photos.keepOnly(kept) }
         LocalEngine.scope.launch(LocalEngine.saves) { chats.save(snapshot) }
     }
 

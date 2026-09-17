@@ -304,4 +304,12 @@ Everything you start stays on this phone.</string>
     <string name="voice_read_aloud">Read aloud</string>
     <string name="voice_stop_reading">Stop reading</string>
     <string name="voice_no_speech_engine">Read aloud needs a text-to-speech voice. You can add one in Android\'s settings.</string>
+    <string name="photo_add">Add a photo</string>
+    <string name="photo_take">Take a photo</string>
+    <string name="photo_choose">Choose a photo</string>
+    <string name="photo_remove">Remove photo</string>
+    <string name="photo_default_question">What does this show? If there is text, what does it say?</string>
+    <string name="photo_in_message">Photo</string>
+    <string name="photo_failed">Couldn\'t open that photo.</string>
+    <string name="photo_needs_gemma">Photos work with Gemma 4 E2B.</string>
 </resources>

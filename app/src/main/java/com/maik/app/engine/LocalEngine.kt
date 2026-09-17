@@ -117,6 +117,11 @@ object LocalEngine {
                 EngineConfig(
                     modelPath = store.fileFor(spec).absolutePath,
                     backend = backend,
+                    // The runtime only loads the image encoder when a photo is sent, so
+                    // enabling it costs nothing for text-only chats. CPU: it runs once
+                    // per photo, and the processor handles that without the GPU's heat.
+                    visionBackend = if (spec.vision) LmBackend.CPU() else null,
+                    maxNumImages = if (spec.vision) 1 else null,
                     maxNumTokens = spec.contextTokens,
                     // Kept in files, not cache: the system clears cache under pressure,
                     // and losing it turns every later load back into a cold one.

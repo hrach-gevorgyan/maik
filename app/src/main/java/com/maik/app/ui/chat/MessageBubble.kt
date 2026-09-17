@@ -100,11 +100,17 @@ internal fun Bubble(msg: Message, onLongPress: (() -> Unit)? = null, match: Matc
                 )
                 .padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            // What the user typed is literal; only replies are marked up.
-            if (msg.fromUser || msg.isError) {
-                Text(msg.text, style = MaterialTheme.typography.bodyLarge, color = fg)
-            } else {
-                MarkdownText(msg.text, fg)
+            Column {
+                msg.imagePath?.let {
+                    PhotoThumb(it, size = 200.dp)
+                    Spacer(Modifier.height(8.dp))
+                }
+                // What the user typed is literal; only replies are marked up.
+                if (msg.fromUser || msg.isError) {
+                    Text(msg.text, style = MaterialTheme.typography.bodyLarge, color = fg)
+                } else {
+                    MarkdownText(msg.text, fg)
+                }
             }
         }
     }

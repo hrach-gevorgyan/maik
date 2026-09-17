@@ -27,7 +27,9 @@ data class Message(
     /** Speed figures for a reply, shown only in debug mode. */
     val stats: String? = null,
     /** The reply stopped at the length limit rather than because it was finished. */
-    val truncated: Boolean = false
+    val truncated: Boolean = false,
+    /** A photo sent with this message, stored privately in the app's files. */
+    val imagePath: String? = null
 )
 
 @Immutable

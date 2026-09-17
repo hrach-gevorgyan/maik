@@ -124,3 +124,20 @@ fun Microphone(tint: Color) {
         drawLine(tint, Offset(w * 0.5f, w * 0.74f), Offset(w * 0.5f, w * 0.9f), s, StrokeCap.Round)
     }
 }
+
+@Composable
+fun CameraGlyph(tint: Color) {
+    Canvas(Modifier.size(22.dp)) {
+        val w = size.width
+        val s = w * 0.09f
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.1f, w * 0.28f),
+            size = Size(w * 0.8f, w * 0.56f),
+            cornerRadius = CornerRadius(w * 0.12f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(s)
+        )
+        drawLine(tint, Offset(w * 0.36f, w * 0.18f), Offset(w * 0.64f, w * 0.18f), s, StrokeCap.Round)
+        drawCircle(tint, radius = w * 0.13f, center = Offset(w * 0.5f, w * 0.56f), style = androidx.compose.ui.graphics.drawscope.Stroke(s))
+    }
+}

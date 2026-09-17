@@ -95,6 +95,25 @@ internal fun ChatScreen(vm: ChatViewModel) {
             input = if (input.isBlank()) heard else input.trimEnd() + " " + heard
         }
     }
+    val photoContext = LocalContext.current
+    var choosingPhoto by remember { mutableStateOf(false) }
+    val photoFailed = stringResource(R.string.photo_failed)
+    val pickPhoto = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) vm.attachPhoto(uri) {
+            android.widget.Toast.makeText(photoContext, photoFailed, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
+    var cameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    val takePhoto = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.TakePicture()
+    ) { saved ->
+        val uri = cameraUri
+        if (saved && uri != null) vm.attachPhoto(uri) {
+            android.widget.Toast.makeText(photoContext, photoFailed, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
     val voicePrompt = stringResource(R.string.voice_prompt)
     val voiceUnavailable = stringResource(R.string.voice_unavailable)
     var searching by rememberSaveable(convo.id) { mutableStateOf(false) }
@@ -397,6 +416,29 @@ internal fun ChatScreen(vm: ChatViewModel) {
             }
         }
 
+        if (choosingPhoto) {
+            ActionSheet(
+                actions = listOf(
+                    SheetAction(stringResource(R.string.photo_take)) {
+                        choosingPhoto = false
+                        val file = vm.cameraTarget()
+                        val uri = androidx.core.content.FileProvider.getUriForFile(context, "com.maik.app.files", file)
+                        cameraUri = uri
+                        runCatching { takePhoto.launch(uri) }
+                    },
+                    SheetAction(stringResource(R.string.photo_choose)) {
+                        choosingPhoto = false
+                        pickPhoto.launch(
+                            androidx.activity.result.PickVisualMediaRequest(
+                                androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                            )
+                        )
+                    }
+                ),
+                onDismiss = { choosingPhoto = false }
+            )
+        }
+
         selectingText?.let { text ->
             SelectableMessageSheet(text) { selectingText = null }
         }
@@ -438,6 +480,9 @@ internal fun ChatScreen(vm: ChatViewModel) {
             busy = vm.busy,
             ready = vm.stage is Stage.Ready,
             focusRequester = composerFocus,
+            photo = vm.pendingPhoto,
+            onAttach = if (vm.canSeePhotos && vm.stage is Stage.Ready) ({ choosingPhoto = true }) else null,
+            onRemovePhoto = vm::removePendingPhoto,
             onVoice = {
                 val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
                     .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)

@@ -47,6 +47,9 @@ internal fun Composer(
     waitingHint: String = "",
     focusRequester: androidx.compose.ui.focus.FocusRequester? = null,
     onVoice: (() -> Unit)? = null,
+    photo: String? = null,
+    onAttach: (() -> Unit)? = null,
+    onRemovePhoto: () -> Unit = {},
     onSend: () -> Unit,
     onStop: () -> Unit
 ) {
@@ -55,8 +58,17 @@ internal fun Composer(
     val messageBox = stringResource(R.string.chat_message_box)
     val stopLabel = stringResource(R.string.chat_stop)
     // Typing is always allowed, so a question can be ready by the time the model is.
-    val canSend = value.isNotBlank() && !busy && ready
+    val canSend = (value.isNotBlank() || photo != null) && !busy && ready
 
+    // The chosen photo waits above the box until it is sent or removed.
+    androidx.compose.animation.AnimatedVisibility(visible = photo != null) {
+        Row(Modifier.fillMaxWidth().padding(start = 20.dp, top = 8.dp), verticalAlignment = Alignment.Top) {
+            photo?.let { PhotoThumb(it, size = 72.dp) }
+            MaikIconButton(description = stringResource(R.string.photo_remove), onClick = onRemovePhoto) {
+                Text("×", style = MaterialTheme.typography.titleMedium, color = scheme.onSurfaceVariant)
+            }
+        }
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -64,6 +76,13 @@ internal fun Composer(
         verticalAlignment = Alignment.Bottom,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        if (onAttach != null) {
+            Box(Modifier.padding(bottom = 2.dp)) {
+                MaikIconButton(description = stringResource(R.string.photo_add), onClick = onAttach) {
+                    CameraGlyph(scheme.onSurfaceVariant)
+                }
+            }
+        }
         Box(
             Modifier
                 .weight(1f)
@@ -103,7 +122,7 @@ internal fun Composer(
             )
         }
 
-        val listening = onVoice != null && !busy && value.isBlank()
+        val listening = onVoice != null && !busy && value.isBlank() && photo == null
         val voiceLabel = stringResource(R.string.voice_speak)
         val source = rememberPressSource()
         val bg by animateColorAsState(

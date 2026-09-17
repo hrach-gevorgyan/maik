@@ -7,6 +7,19 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 2.9.0 — 17 September 2026
+
+**Ask about a photo.**
+
+- **Photos with Gemma 4 E2B.** The camera button next to the message box takes a photo or
+  picks one from your gallery — a menu, a sign, a form — and you ask about it. Send it on
+  its own and maik describes it and reads any text it can see.
+- Photos are shrunk before the model looks at them, kept privately inside the app, and
+  deleted along with the message or chat they belong to.
+- The smaller model reads text only, so the button appears just for Gemma.
+
+---
+
 ## 2.8.0 — 17 September 2026
 
 **Talk to it, and let it talk back.**

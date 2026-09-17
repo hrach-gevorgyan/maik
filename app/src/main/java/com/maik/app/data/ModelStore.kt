@@ -52,7 +52,9 @@ data class ModelSpec(
     /** SHA-256 of the file at [url], as Hugging Face lists it for the LFS object. */
     val sha256: String,
     /** True for models big enough that the phone warms up noticeably while they answer. */
-    val heavy: Boolean = false
+    val heavy: Boolean = false,
+    /** The bundle carries an image encoder, so photos can be part of a question. */
+    val vision: Boolean = false
 ) {
     val fileName: String get() = "$id.litertlm"
     val approxMb: Long get() = approxBytes / 1024 / 1024
@@ -65,6 +67,7 @@ object Models {
         params = "2B effective",
         blurbRes = R.string.model_blurb_gemma,
         heavy = true,
+        vision = true,
         url = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/" +
             "resolve/b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1/gemma-4-E2B-it.litertlm",
         approxBytes = 2_588_147_712L,
