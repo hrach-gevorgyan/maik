@@ -7,6 +7,22 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 2.9.2 — 17 September 2026
+
+**maik knows it is offline, and says so straight away.**
+
+- The model is now told plainly that it has no internet, no search, no apps and no live
+  data, and that it must never offer to look things up, check prices or availability, book
+  anything or ask for details it can do nothing with. Before this, Gemma would offer to
+  "check hotel availability", ask for your dates, and only then admit it cannot — three
+  turns to get to the truth.
+- It is also told to answer from what it knows in the first reply, and to say plainly when
+  something needs checking online or a newer source than its training.
+- If you never wrote your own instructions, you get the new wording automatically. Anything
+  you typed yourself is left untouched.
+
+---
+
 ## 2.9.1 — 17 September 2026
 
 - **No "Not now" on a fresh install.** With no model there was nothing to look at, and it

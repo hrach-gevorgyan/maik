@@ -108,9 +108,25 @@ object Models {
     fun byId(id: String?): ModelSpec = ALL.firstOrNull { it.id == id } ?: DEFAULT
 }
 
+/**
+ * What the model is told before every conversation.
+ *
+ * The important part is the second half. Trained on assistants that can search and
+ * book things, a small model will happily offer to "check availability" and ask for
+ * dates it can do nothing with. Saying plainly that there is no connection and no
+ * tools turns three wasted turns into one honest answer.
+ */
 const val DEFAULT_SYSTEM_PROMPT =
-    "You are maik, a helpful assistant running entirely on the user's phone. " +
-        "Answer clearly and concisely."
+    "You are maik, an assistant running entirely on the user's phone, offline.\n\n" +
+        "You have no internet, no search, no apps, no location and no live data. You " +
+        "cannot look anything up, check prices or availability, book or order anything, " +
+        "send messages, open links, or read anything the user has not written to you. " +
+        "Never offer to do those things and never ask for details you could only use by " +
+        "doing them.\n\n" +
+        "Answer from what you already know, in the first reply, even when the answer can " +
+        "only be general advice. Say plainly when something needs checking online, needs a " +
+        "newer source than your training, or when you are unsure — then give the best " +
+        "answer you can anyway. Be clear and concise."
 
 sealed interface Download {
     /** [verifying] is true while the finished file is checked, which takes a while. */
@@ -161,8 +177,8 @@ class ModelStore(context: Context) {
             .getOrDefault(ThemeMode.SYSTEM)
         private set
 
-    var systemPrompt: String = prefs.getString("system", DEFAULT_SYSTEM_PROMPT)
-        ?: DEFAULT_SYSTEM_PROMPT
+    var systemPrompt: String = prefs.getString("system", null)
+        .let { saved -> if (saved == null || saved in SUPERSEDED_PROMPTS) DEFAULT_SYSTEM_PROMPT else saved }
         private set
 
     fun select(next: ModelSpec) {
@@ -388,6 +404,15 @@ class ModelStore(context: Context) {
     }
 
     internal companion object {
+        /**
+         * Earlier default instructions. Someone who never wrote their own gets the
+         * current wording; anything they typed themselves is left alone.
+         */
+        val SUPERSEDED_PROMPTS = setOf(
+            "You are maik, a helpful assistant running entirely on the user's phone. " +
+                "Answer clearly and concisely."
+        )
+
         /** Anything smaller than this is a stub or an error page, not a model. */
         const val MIN_PLAUSIBLE_BYTES = 20L * 1024 * 1024
 
