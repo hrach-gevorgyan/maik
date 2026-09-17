@@ -40,7 +40,9 @@ data class Conversation(
      * selected" — set on the first reply so a conversation keeps one voice even
      * after you switch models elsewhere.
      */
-    val modelId: String? = null
+    val modelId: String? = null,
+    /** Pinned chats stay at the top of the list, whatever was used last. */
+    val pinned: Boolean = false
 ) {
     val preview: String
         get() = messages.lastOrNull()?.text?.replace('\n', ' ')?.take(90).orEmpty()

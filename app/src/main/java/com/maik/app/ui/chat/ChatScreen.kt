@@ -24,6 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.maik.app.*
@@ -54,6 +56,10 @@ internal fun ChatScreen(vm: ChatViewModel) {
     }
     val count = convo.messages.size
     var pickingModel by remember { mutableStateOf(false) }
+    var menuFor by remember { mutableStateOf<Int?>(null) }
+    var selectingText by remember { mutableStateOf<String?>(null) }
+    var editing by remember { mutableStateOf<Int?>(null) }
+    val context = LocalContext.current
 
     // The list is laid out from the bottom, so a growing reply pushes older messages
     // up by itself — no scrolling on every token, which is what made streaming judder.
@@ -127,7 +133,7 @@ internal fun ChatScreen(vm: ChatViewModel) {
                 val msg = convo.messages[index]
                 item(key = "m$index", contentType = if (msg.fromUser) 0 else 1) {
                     Column(Modifier.animateItem(placementSpec = null, fadeOutSpec = null)) {
-                        Bubble(msg)
+                        Bubble(msg, onLongPress = { menuFor = index })
                         if (vm.debugMode && msg.stats != null) SpeedLine(msg.stats)
                     }
                 }
@@ -159,12 +165,67 @@ internal fun ChatScreen(vm: ChatViewModel) {
                     .heightIn(min = 48.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primary)
-                    .clickable {
+                    .clickable(role = Role.Button) {
                         scope.launch { listState.animateScrollToItem(0) }
                     }
                     .padding(horizontal = 18.dp, vertical = 14.dp)
             )
         }
+        }
+
+        // Long press on any message: copy, select, share, edit, delete.
+        menuFor?.let { index ->
+            val msg = convo.messages.getOrNull(index)
+            if (msg == null) menuFor = null else {
+                val actions = buildList {
+                    add(SheetAction("Copy") {
+                        copyToClipboard(context, msg.text)
+                        menuFor = null
+                    })
+                    add(SheetAction("Select text") {
+                        selectingText = msg.text
+                        menuFor = null
+                    })
+                    add(SheetAction("Share") {
+                        shareText(context, msg.text)
+                        menuFor = null
+                    })
+                    if (msg.fromUser && !vm.busy) {
+                        add(SheetAction("Edit and send again") {
+                            editing = index
+                            menuFor = null
+                        })
+                    }
+                    if (!vm.busy) {
+                        add(SheetAction("Delete message", destructive = true) {
+                            vm.deleteMessage(index)
+                            menuFor = null
+                        })
+                    }
+                }
+                ActionSheet(
+                    title = if (msg.fromUser) "Your message" else "maik's reply",
+                    subtitle = relativeTime(msg.at),
+                    actions = actions,
+                    onDismiss = { menuFor = null }
+                )
+            }
+        }
+
+        selectingText?.let { text ->
+            SelectableMessageSheet(text) { selectingText = null }
+        }
+
+        editing?.let { index ->
+            val original = convo.messages.getOrNull(index)?.text.orEmpty()
+            EditMessageDialog(
+                initial = original,
+                onSend = {
+                    vm.editAndResend(index, it)
+                    editing = null
+                },
+                onDismiss = { editing = null }
+            )
         }
 
         if (pickingModel) {
@@ -303,7 +364,7 @@ private fun StripAction(label: String, onClick: () -> Unit) {
         modifier = Modifier
             .heightIn(min = 48.dp)
             .clip(RoundedCornerShape(10.dp))
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 14.dp)
     )
 }
@@ -399,6 +460,37 @@ private fun ModelPicker(
             TextButton(onClick = onDismiss) {
                 Text("Close", color = scheme.onSurfaceVariant)
             }
+        }
+    )
+}
+
+/** Rewrites one of your messages and asks again from that point. */
+@Composable
+private fun EditMessageDialog(initial: String, onSend: (String) -> Unit, onDismiss: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    var draft by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = scheme.surfaceVariant,
+        title = { DialogTitle("Edit your message") },
+        text = {
+            Column {
+                EditorField(draft) { draft = it }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "Everything after this message will be replaced by a new answer.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = draft.isNotBlank(), onClick = { onSend(draft) }) {
+                Text("Send again", color = scheme.primary)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel", color = scheme.onSurfaceVariant) }
         }
     )
 }

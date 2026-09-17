@@ -173,8 +173,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     val visibleConversations: List<Conversation>
         get() {
             val q = query.trim()
-            if (q.isEmpty()) return conversations
-            return conversations.filter { convo ->
+            // Pinned first; within each group the list keeps its most-recent-first order.
+            if (q.isEmpty()) return conversations.sortedByDescending { it.pinned }
+            return conversations.sortedByDescending { it.pinned }.filter { convo ->
                 convo.title.contains(q, ignoreCase = true) ||
                     convo.messages.any { it.text.contains(q, ignoreCase = true) }
             }
@@ -357,6 +358,43 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         if (sessionOwner == id) viewModelScope.launch { endSession() }
         conversations.removeAll { it.id == id }
         persist()
+    }
+
+    /** Pins or unpins a chat, so it stays at the top of the list. */
+    fun togglePin(id: String) {
+        replace(id) { it.copy(pinned = !it.pinned) }
+        persist()
+    }
+
+    /** Removes one message from the open chat; the next turn rebuilds the context. */
+    fun deleteMessage(index: Int) {
+        val convo = current ?: return
+        if (busy || index !in convo.messages.indices) return
+        replace(convo.id) { it.copy(messages = it.messages.filterIndexed { i, _ -> i != index }) }
+        persist()
+        viewModelScope.launch { endSession() }
+    }
+
+    /**
+     * Replaces one of your messages and asks again from there. Everything after it
+     * goes, because it was an answer to the old wording.
+     */
+    fun editAndResend(index: Int, text: String) {
+        val convo = current ?: return
+        val clean = text.trim()
+        if (busy || clean.isEmpty() || index !in convo.messages.indices) return
+        if (!convo.messages[index].fromUser) return
+        val kept = convo.messages.take(index) + convo.messages[index].copy(text = clean)
+        replace(convo.id) {
+            it.copy(
+                title = if (index == 0) Conversation.titleFrom(clean) else it.title,
+                messages = kept,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+        bumpToTop(convo.id)
+        persist()
+        generate(convo.id, freshSession = true)
     }
 
     fun rename(id: String, title: String) {

@@ -66,27 +66,56 @@ private val DangerLight = Color(0xFFB3261E)
 internal val Dark = darkColorScheme(
     primary = Acid,
     onPrimary = Ink,
+    primaryContainer = Surface2,
+    onPrimaryContainer = Acid,
     background = Ink,
     onBackground = Bone,
     surface = Surface1,
     onSurface = Bone,
     surfaceVariant = Surface2,
     onSurfaceVariant = Bone,
+    // Sheets and menus sit above the page and must not read as the same plane.
+    surfaceContainer = Surface2,
+    surfaceContainerHigh = Color(0xFF22222C),
+    surfaceContainerHighest = Color(0xFF282833),
+    surfaceContainerLow = Surface1,
+    surfaceContainerLowest = Ink,
+    inverseSurface = Bone,
+    inverseOnSurface = Ink,
     outline = Line,
-    error = DangerDark
+    outlineVariant = Color(0xFF32323E),
+    scrim = Color(0xCC000000),
+    error = DangerDark,
+    onError = Ink,
+    errorContainer = Color(0xFF3A1B21),
+    onErrorContainer = DangerDark
 )
 
 internal val Light = lightColorScheme(
     primary = AcidDeep,
     onPrimary = Color.White,
+    primaryContainer = Color(0xFFE8F5B0),
+    onPrimaryContainer = Color(0xFF2B3600),
     background = Paper,
     onBackground = Charcoal,
     surface = PaperSurface,
     onSurface = Charcoal,
     surfaceVariant = PaperSurfaceAlt,
     onSurfaceVariant = Charcoal,
+    surfaceContainer = PaperSurfaceAlt,
+    surfaceContainerHigh = Color(0xFFE6E6EC),
+    surfaceContainerHighest = Color(0xFFDFDFE7),
+    surfaceContainerLow = PaperSurface,
+    surfaceContainerLowest = Color.White,
+    inverseSurface = Charcoal,
+    inverseOnSurface = Paper,
     outline = PaperLine,
-    error = DangerLight
+    outlineVariant = Color(0xFFE7E7EE),
+    scrim = Color(0x99000000),
+    error = DangerLight,
+    onError = Color.White,
+    errorContainer = Color(0xFFF9DEDC),
+    onErrorContainer = Color(0xFF410E0B)
 )
 
 internal fun style(size: Int, weight: Int, lineHeight: Int, tracking: Double) = TextStyle(
@@ -108,7 +137,7 @@ private val MaikType = Typography(
 )
 
 @Composable
-fun MaikTheme(mode: ThemeMode = ThemeMode.LIGHT, content: @Composable () -> Unit) {
+fun MaikTheme(mode: ThemeMode = ThemeMode.SYSTEM, content: @Composable () -> Unit) {
     val dark = when (mode) {
         ThemeMode.SYSTEM -> isSystemInDarkTheme()
         ThemeMode.DARK -> true

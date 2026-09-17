@@ -7,8 +7,8 @@ plugins {
 
 // Single source of truth for the version, overridable from CI:
 //   ./gradlew assembleRelease -PmaikVersionName=1.2.0 -PmaikVersionCode=5
-val maikVersionName: String = (findProperty("maikVersionName") as String?) ?: "2.0.2"
-val maikVersionCode: Int = (findProperty("maikVersionCode") as String?)?.toInt() ?: 20002
+val maikVersionName: String = (findProperty("maikVersionName") as String?) ?: "2.1.0"
+val maikVersionCode: Int = (findProperty("maikVersionCode") as String?)?.toInt() ?: 20100
 
 // Set by the release workflow. Keeps emulator-only architectures out of an APK
 // that real people will install.
@@ -74,7 +74,8 @@ android {
     buildFeatures {
         compose = true
         // Off by default in AGP 8, but stated so nobody re-enables them by accident.
-        buildConfig = false
+        // The About page shows the version it was built from.
+        buildConfig = true
         resValues = false
         shaders = false
     }
@@ -115,6 +116,9 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
 
+    androidTestImplementation(platform("androidx.compose:compose-bom:2024.12.01"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")

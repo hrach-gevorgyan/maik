@@ -214,7 +214,7 @@ fun QuietAction(label: String, onClick: () -> Unit) {
                     MaterialTheme.colorScheme.outline,
                     CircleShape
                 )
-                .clickable(onClick = onClick)
+                .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onClick)
                 .padding(horizontal = 18.dp, vertical = 9.dp)
         )
     }

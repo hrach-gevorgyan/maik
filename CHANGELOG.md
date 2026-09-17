@@ -7,6 +7,27 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 2.1.0 — 17 September 2026
+
+**The chat grows up.**
+
+- **Long-press any message** for Copy, Select text, Share, Delete, and — on your own
+  messages — Edit and send again, which asks the question afresh from that point.
+- **Copy button on code blocks**, because that is what code is for.
+- **Pin a chat to the top**, and swipe a chat sideways to delete it (it still asks first).
+- **A proper About page:** version, what maik does and doesn't send, and the licences of
+  the runtime, the font and each model.
+- **Wide screens read properly.** In landscape, on a tablet or in split view, text keeps
+  a comfortable width in the middle instead of stretching across the whole screen.
+- **Dark theme pass:** sheets, menus and code blocks now sit on their own surfaces
+  instead of blending into the page.
+- **Accessibility:** tappable text is announced as buttons, pinned chats say so, and
+  everything holds together at 150% font size.
+- **Five UI tests** now tap through the chat the way a thumb does, on top of the 66 unit
+  tests and the emulator model test.
+
+---
+
 ## 2.0.2 — 17 September 2026
 
 - **Follows your phone's theme by default.** New installs match the system's light or

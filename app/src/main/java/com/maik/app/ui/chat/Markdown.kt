@@ -22,6 +22,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -209,17 +213,34 @@ fun MarkdownText(source: String, color: Color, modifier: Modifier = Modifier) {
                     Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(12.dp))
-                        .background(scheme.background.copy(alpha = 0.45f))
+                        .background(scheme.onSurface.copy(alpha = 0.07f))
                         .padding(PaddingValues(12.dp))
                 ) {
-                    block.language?.let {
+                    // Code is the thing people most often want out of a reply whole.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            it,
+                            block.language.orEmpty(),
                             style = MaterialTheme.typography.labelSmall,
-                            color = color.copy(alpha = 0.35f)
+                            color = color.copy(alpha = 0.35f),
+                            modifier = Modifier.weight(1f)
                         )
-                        Spacer(Modifier.height(6.dp))
+                        val context = LocalContext.current
+                        val buzz = tap()
+                        Text(
+                            "Copy",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = scheme.primary,
+                            modifier = Modifier
+                                .minimumInteractiveComponentSize()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    buzz()
+                                    copyToClipboard(context, block.text)
+                                }
+                                .padding(horizontal = 8.dp, vertical = 6.dp)
+                        )
                     }
+                    Spacer(Modifier.height(6.dp))
                     // Code must never force the bubble wider than the screen.
                     Text(
                         block.text,

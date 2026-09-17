@@ -4,6 +4,9 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -27,6 +30,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.maik.app.*
+import com.maik.app.BuildConfig
 import com.maik.app.data.*
 import com.maik.app.engine.*
 import com.maik.app.ui.chat.*
@@ -540,9 +544,15 @@ private fun BehaviourPage(vm: ChatViewModel) {
 @Composable
 private fun AboutPage(vm: ChatViewModel) {
     val scheme = MaterialTheme.colorScheme
+    val context = LocalContext.current
     Column(Modifier.fillMaxSize()) {
         TopBar(title = "About", onBack = { vm.openSettingsPage(SettingsPage.Root) })
-        Column(Modifier.padding(20.dp)) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp)
+        ) {
             Wordmark(size = 40)
             Spacer(Modifier.height(16.dp))
             Text(
@@ -554,11 +564,77 @@ private fun AboutPage(vm: ChatViewModel) {
                 color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
             )
             Spacer(Modifier.height(20.dp))
+            LabelledValue("VERSION", BuildConfig.VERSION_NAME)
             LabelledValue("MODEL", vm.spec.label)
             LabelledValue("CONTEXT", "${vm.spec.contextTokens} tokens")
+            LabelledValue(
+                "RUNNING ON",
+                when (vm.backend) {
+                    Backend.GPU -> "GPU"
+                    Backend.CPU -> "CPU"
+                    Backend.NONE -> "Nothing loaded"
+                }
+            )
 
+            Spacer(Modifier.height(28.dp))
+            SectionTitle("What maik sends")
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Model downloads from huggingface.co, and nothing else. No analytics, " +
+                    "no crash reports, no account. Chats and settings are stored only on " +
+                    "this phone, and Android's own backup can copy them to your Google " +
+                    "account if you have backup switched on — model files are excluded.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
+            )
+
+            Spacer(Modifier.height(28.dp))
+            SectionTitle("Licences")
+            Spacer(Modifier.height(8.dp))
+            LICENCES.forEach { (what, licence) ->
+                LabelledValue(what, licence)
+            }
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "Each model carries the licence of whoever trained it; read it before " +
+                    "using a model's output commercially.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
+            )
+
+            Spacer(Modifier.height(24.dp))
+            OutlineButton("Source code on GitHub") {
+                runCatching<Unit> {
+                    context.startActivity(
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://github.com/hrach-gevorgyan/maik")
+                        )
+                    )
+                }
+            }
+            Spacer(Modifier.height(32.dp))
         }
     }
+}
+
+/** Everything maik is built out of, and what each may be used under. */
+private val LICENCES = listOf(
+    "LITERT-LM" to "Apache 2.0, Google",
+    "ANDROID, COMPOSE" to "Apache 2.0, Google",
+    "KOTLIN" to "Apache 2.0, JetBrains",
+    "HK GROTESK" to "SIL Open Font Licence 1.1",
+    "GEMMA 4 E2B" to "Gemma Terms of Use, Google",
+    "LFM2.5 1.2B" to "LFM Open Licence, Liquid AI"
+)
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.onBackground
+    )
 }
 
 @Composable

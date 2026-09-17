@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maik.app.data.*
 import com.maik.app.engine.*
@@ -68,8 +69,13 @@ internal fun Root(vm: ChatViewModel = viewModel()) {
                     .fillMaxSize()
                     .statusBarsPadding()
                     .navigationBarsPadding()
-                    .imePadding()
+                    .imePadding(),
+                contentAlignment = androidx.compose.ui.Alignment.TopCenter
             ) {
+              Box(Modifier.fillMaxHeight().widthIn(max = 680.dp)) {
+                // On a wide screen — landscape, a tablet, split view — a chat that runs
+                // the full width is unreadable. Text keeps a comfortable measure and
+                // sits in the middle instead.
                 AnimatedContent(
                     targetState = vm.screen,
                     transitionSpec = {
@@ -86,6 +92,7 @@ internal fun Root(vm: ChatViewModel = viewModel()) {
                         Screen.Chat -> ChatScreen(vm)
                     }
                 }
+              }
             }
         }
       }

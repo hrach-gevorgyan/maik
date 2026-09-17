@@ -12,6 +12,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -20,6 +24,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.maik.app.*
@@ -92,15 +98,19 @@ fun ConversationListScreen(vm: ChatViewModel) {
                         vm.visibleConversations,
                         key = { _, convo -> convo.id }
                     ) { _, convo ->
-                        ConversationRow(
-                            convo = convo,
-                            onOpen = { vm.open(convo.id) },
-                            onLongPress = {
-                                buzz()
-                                menuFor = convo
+                        Column(Modifier.animateItem()) {
+                            SwipeToDelete(onDelete = { confirmDelete = convo }) {
+                                ConversationRow(
+                                    convo = convo,
+                                    onOpen = { vm.open(convo.id) },
+                                    onLongPress = {
+                                        buzz()
+                                        menuFor = convo
+                                    }
+                                )
                             }
-                        )
-                        HorizontalLine()
+                            HorizontalLine()
+                        }
                     }
                 }
             }
@@ -113,29 +123,24 @@ fun ConversationListScreen(vm: ChatViewModel) {
     }
 
     menuFor?.let { convo ->
-        AlertDialog(
-            onDismissRequest = { menuFor = null },
-            containerColor = scheme.surfaceVariant,
-            title = { DialogTitle(convo.title) },
-            text = {
-                Text(
-                    "${convo.messages.size} messages · ${relativeTime(convo.updatedAt)}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = scheme.onSurfaceVariant.copy(alpha = 0.6f)
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
+        ActionSheet(
+            title = convo.title,
+            subtitle = "${convo.messages.size} messages · ${relativeTime(convo.updatedAt)}",
+            actions = listOf(
+                SheetAction(if (convo.pinned) "Unpin" else "Pin to top") {
+                    vm.togglePin(convo.id)
+                    menuFor = null
+                },
+                SheetAction("Rename") {
                     renaming = convo
                     menuFor = null
-                }) { Text("Rename", color = scheme.primary) }
-            },
-            dismissButton = {
-                TextButton(onClick = {
+                },
+                SheetAction("Delete", destructive = true) {
                     confirmDelete = convo
                     menuFor = null
-                }) { Text("Delete", color = scheme.error) }
-            }
+                }
+            ),
+            onDismiss = { menuFor = null }
         )
     }
 
@@ -245,10 +250,22 @@ private fun ConversationRow(
     Row(
         Modifier
             .fillMaxWidth()
+            // Opaque, so the delete panel behind it only shows where the row has moved.
+            .background(scheme.background)
             .combinedClick(onClick = onOpen, onLongClick = onLongPress)
             .padding(horizontal = 20.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (convo.pinned) {
+            Text(
+                "PIN",
+                style = MaterialTheme.typography.labelSmall,
+                color = scheme.primary,
+                modifier = Modifier
+                    .padding(end = 10.dp)
+                    .semantics { contentDescription = "Pinned" }
+            )
+        }
         Column(Modifier.weight(1f)) {
             Text(
                 convo.title,
@@ -275,6 +292,47 @@ private fun ConversationRow(
             color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
         )
     }
+}
+
+/**
+ * Swipe a chat aside to delete it. The row itself confirms first, so a swipe that
+ * was meant as a scroll can never lose a conversation.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeToDelete(onDelete: () -> Unit, content: @Composable () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val buzz = tap()
+    val state = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value != SwipeToDismissBoxValue.Settled) {
+                buzz()
+                onDelete()
+            }
+            // Never actually dismiss: the confirmation decides, and the row springs back.
+            false
+        }
+    )
+    SwipeToDismissBox(
+        state = state,
+        backgroundContent = {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(scheme.error.copy(alpha = 0.12f))
+                    .padding(horizontal = 24.dp),
+                contentAlignment = if (state.dismissDirection == SwipeToDismissBoxValue.EndToStart)
+                    Alignment.CenterEnd else Alignment.CenterStart
+            ) {
+                Text(
+                    "Delete",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = scheme.error
+                )
+            }
+        },
+        content = { content() }
+    )
 }
 
 @Composable

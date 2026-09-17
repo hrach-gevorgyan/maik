@@ -7,6 +7,12 @@ import android.os.Build
 import android.widget.Toast
 import androidx.compose.animation.core.*
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -31,9 +37,8 @@ import com.maik.app.ui.theme.*
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun Bubble(msg: Message) {
+internal fun Bubble(msg: Message, onLongPress: (() -> Unit)? = null) {
     val scheme = MaterialTheme.colorScheme
-    val context = LocalContext.current
     val buzz = tap()
 
     val bg = when {
@@ -62,9 +67,12 @@ internal fun Bubble(msg: Message) {
                 .background(bg)
                 .combinedClickable(
                     onClick = {},
-                    onLongClick = {
-                        buzz()
-                        copyToClipboard(context, msg.text)
+                    onLongClickLabel = "Message options",
+                    onLongClick = onLongPress?.let {
+                        {
+                            buzz()
+                            it()
+                        }
                     }
                 )
                 .padding(horizontal = 16.dp, vertical = 12.dp)
@@ -79,7 +87,48 @@ internal fun Bubble(msg: Message) {
     }
 }
 
-private fun copyToClipboard(context: Context, text: String) {
+/** The full message, selectable word by word, for copying part of an answer. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun SelectableMessageSheet(text: String, onDismiss: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = scheme.surfaceVariant,
+        contentColor = scheme.onSurface
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 520.dp)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp)
+        ) {
+            Text(
+                "Press and hold to select",
+                style = MaterialTheme.typography.labelSmall,
+                color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
+            )
+            Spacer(Modifier.height(12.dp))
+            SelectionContainer {
+                Text(text, style = MaterialTheme.typography.bodyLarge, color = scheme.onSurface)
+            }
+        }
+    }
+}
+
+/** Hands the message to whatever the phone can share with. */
+internal fun shareText(context: Context, text: String) {
+    val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(android.content.Intent.EXTRA_TEXT, text)
+    }
+    runCatching { context.startActivity(android.content.Intent.createChooser(intent, "Share")) }
+}
+
+internal fun copyToClipboard(context: Context, text: String) {
     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
     clipboard?.setPrimaryClip(ClipData.newPlainText("maik", text))
     // Android 13+ shows its own copy confirmation; a second one would be noise.
