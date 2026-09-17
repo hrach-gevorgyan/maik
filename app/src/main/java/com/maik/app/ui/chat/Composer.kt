@@ -46,6 +46,7 @@ internal fun Composer(
     ready: Boolean,
     waitingHint: String = "",
     focusRequester: androidx.compose.ui.focus.FocusRequester? = null,
+    onVoice: (() -> Unit)? = null,
     onSend: () -> Unit,
     onStop: () -> Unit
 ) {
@@ -102,9 +103,11 @@ internal fun Composer(
             )
         }
 
+        val listening = onVoice != null && !busy && value.isBlank()
+        val voiceLabel = stringResource(R.string.voice_speak)
         val source = rememberPressSource()
         val bg by animateColorAsState(
-            if (canSend || busy) scheme.primary else scheme.surfaceVariant,
+            if (canSend || busy || listening) scheme.primary else scheme.surfaceVariant,
             tween(Motion.NORMAL),
             label = "sendBg"
         )
@@ -114,24 +117,38 @@ internal fun Composer(
                 .pressable(source)
                 .clip(CircleShape)
                 .background(bg)
-                .semantics { contentDescription = if (busy) stopLabel else sendLabel }
+                .semantics {
+                    contentDescription = when {
+                        busy -> stopLabel
+                        listening -> voiceLabel
+                        else -> sendLabel
+                    }
+                }
                 .clickable(
-                    enabled = canSend || busy,
+                    enabled = canSend || busy || listening,
                     interactionSource = source,
                     indication = null,
-                    onClick = if (busy) onStop else onSend
+                    onClick = when {
+                        busy -> onStop
+                        listening -> onVoice!!
+                        else -> onSend
+                    }
                 ),
             contentAlignment = Alignment.Center
         ) {
             AnimatedContent(
-                targetState = busy,
+                targetState = when {
+                    busy -> 0
+                    listening -> 1
+                    else -> 2
+                },
                 transitionSpec = { scaleIn(tween(Motion.QUICK)) togetherWith scaleOut(tween(Motion.QUICK)) },
                 label = "sendGlyph"
-            ) { running ->
-                if (running) {
-                    StopSquare(scheme.onPrimary)
-                } else {
-                    ArrowUp(
+            ) { mode ->
+                when (mode) {
+                    0 -> StopSquare(scheme.onPrimary)
+                    1 -> Microphone(scheme.onPrimary)
+                    else -> ArrowUp(
                         if (canSend) scheme.onPrimary
                         else scheme.onSurfaceVariant.copy(alpha = 0.4f)
                     )

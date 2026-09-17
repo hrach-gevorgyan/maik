@@ -4,6 +4,7 @@ import com.maik.app.data.Conversation
 import com.maik.app.data.Message
 import com.maik.app.data.filterConversations
 import com.maik.app.data.findInMessages
+import com.maik.app.data.speakableText
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -39,5 +40,11 @@ class ConversationFilterTest {
         assertEquals(listOf(0, 1), findInMessages(messages, " STATION "))
         assertEquals(emptyList<Int>(), findInMessages(messages, ""))
         assertEquals(emptyList<Int>(), findInMessages(messages, "airport"))
+    }
+
+    @Test
+    fun `read aloud says the words, not the markdown`() {
+        val reply = "## Route\n\n- Take the **U2** to `Alexanderplatz`\n- Walk *five* minutes"
+        assertEquals("Route Take the U2 to Alexanderplatz Walk five minutes", speakableText(reply))
     }
 }

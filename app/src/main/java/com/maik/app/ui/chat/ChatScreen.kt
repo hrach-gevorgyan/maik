@@ -82,6 +82,21 @@ internal fun ChatScreen(vm: ChatViewModel) {
     val count = convo.messages.size
     var pickingModel by remember { mutableStateOf(false) }
     val composerFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val reader = rememberReadAloud()
+    // Voice typing through the phone's own recogniser, which works offline where its
+    // language pack is installed. Whatever it heard goes into the message box to check.
+    val voice = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val heard = result.data
+            ?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)
+            ?.firstOrNull()
+        if (!heard.isNullOrBlank()) {
+            input = if (input.isBlank()) heard else input.trimEnd() + " " + heard
+        }
+    }
+    val voicePrompt = stringResource(R.string.voice_prompt)
+    val voiceUnavailable = stringResource(R.string.voice_unavailable)
     var searching by rememberSaveable(convo.id) { mutableStateOf(false) }
     var findQuery by rememberSaveable(convo.id) { mutableStateOf("") }
     var findPosition by rememberSaveable(convo.id) { mutableStateOf(0) }
@@ -345,6 +360,21 @@ internal fun ChatScreen(vm: ChatViewModel) {
                         shareText(context, msg.text)
                         menuFor = null
                     })
+                    if (!msg.fromUser && !msg.isError) {
+                        val reading = reader.speakingAt == msg.at
+                        add(SheetAction(stringResource(if (reading) R.string.voice_stop_reading else R.string.voice_read_aloud)) {
+                            if (reading) {
+                                reader.stop()
+                            } else if (reader.available) {
+                                reader.speak(msg.at, msg.text)
+                            } else {
+                                android.widget.Toast.makeText(
+                                    context, context.getString(R.string.voice_no_speech_engine), android.widget.Toast.LENGTH_LONG
+                                ).show()
+                            }
+                            menuFor = null
+                        })
+                    }
                     if (msg.fromUser && !vm.busy && vm.stage is Stage.Ready) {
                         add(SheetAction(stringResource(R.string.chat_edit_and_send_again)) {
                             editing = index
@@ -408,6 +438,15 @@ internal fun ChatScreen(vm: ChatViewModel) {
             busy = vm.busy,
             ready = vm.stage is Stage.Ready,
             focusRequester = composerFocus,
+            onVoice = {
+                val intent = android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+                    .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                    .putExtra(android.speech.RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                    .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, voicePrompt)
+                runCatching { voice.launch(intent) }.onFailure {
+                    android.widget.Toast.makeText(context, voiceUnavailable, android.widget.Toast.LENGTH_SHORT).show()
+                }
+            },
             waitingHint = when (vm.stage) {
                 is Stage.NeedsModel -> stringResource(R.string.chat_hint_needs_model)
                 is Stage.Broken -> stringResource(R.string.chat_hint_broken)

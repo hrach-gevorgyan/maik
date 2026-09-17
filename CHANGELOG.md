@@ -7,6 +7,18 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 2.8.0 — 17 September 2026
+
+**Talk to it, and let it talk back.**
+
+- **Speak your question.** With the message box empty, the send button becomes a
+  microphone. It uses your phone's own speech recognition, which works offline once its
+  language pack is downloaded, and puts what it heard in the box for you to check.
+- **Read aloud.** Long-press any reply and choose Read aloud; the phone's own voice reads
+  it, without the markdown symbols. Leaving the chat stops it.
+
+---
+
 ## 2.7.0 — 17 September 2026
 
 **Faster to reach, quicker to use.**

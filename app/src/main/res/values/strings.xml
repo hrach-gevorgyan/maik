@@ -298,4 +298,10 @@ Everything you start stays on this phone.</string>
     <string name="find_next">Next match</string>
     <string name="find_no_matches">No matches</string>
     <string name="find_position">%1$d of %2$d</string>
+    <string name="voice_speak">Speak your question</string>
+    <string name="voice_prompt">Ask maik</string>
+    <string name="voice_unavailable">Voice typing isn\'t available on this phone.</string>
+    <string name="voice_read_aloud">Read aloud</string>
+    <string name="voice_stop_reading">Stop reading</string>
+    <string name="voice_no_speech_engine">Read aloud needs a text-to-speech voice. You can add one in Android\'s settings.</string>
 </resources>

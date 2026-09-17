@@ -100,3 +100,27 @@ fun ChevronVertical(tint: Color, up: Boolean) {
         drawLine(tint, Offset(w * 0.5f, tip), Offset(w * 0.9f, base), s, StrokeCap.Round)
     }
 }
+
+@Composable
+fun Microphone(tint: Color) {
+    Canvas(Modifier.size(20.dp)) {
+        val w = size.width
+        val s = w * 0.1f
+        drawRoundRect(
+            color = tint,
+            topLeft = Offset(w * 0.36f, w * 0.08f),
+            size = Size(w * 0.28f, w * 0.5f),
+            cornerRadius = CornerRadius(w * 0.14f)
+        )
+        drawArc(
+            color = tint,
+            startAngle = 0f,
+            sweepAngle = 180f,
+            useCenter = false,
+            topLeft = Offset(w * 0.22f, w * 0.26f),
+            size = Size(w * 0.56f, w * 0.48f),
+            style = androidx.compose.ui.graphics.drawscope.Stroke(s, cap = StrokeCap.Round)
+        )
+        drawLine(tint, Offset(w * 0.5f, w * 0.74f), Offset(w * 0.5f, w * 0.9f), s, StrokeCap.Round)
+    }
+}

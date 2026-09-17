@@ -125,6 +125,15 @@ fun filterConversations(all: List<Conversation>, query: String): List<Conversati
     }
 }
 
+/** A reply as a voice should say it: markdown markers and code fences removed. */
+fun speakableText(markdown: String): String = markdown
+    .replace(Regex("```[a-zA-Z0-9]*"), "")
+    .replace(Regex("(?m)^#{1,6}\\s+"), "")
+    .replace(Regex("(?m)^\\s*[-*]\\s+"), "")
+    .replace(Regex("[*_`]"), "")
+    .replace(Regex("\\s+"), " ")
+    .trim()
+
 /** Indices of the messages in [messages] that contain [query], oldest first. */
 fun findInMessages(messages: List<Message>, query: String): List<Int> {
     val q = query.trim()
