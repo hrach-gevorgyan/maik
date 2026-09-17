@@ -147,11 +147,50 @@ jobs:
             } >> notes.md
           fi
 
+      # Published with the CLI that ships on the runner rather than a third-party
+      # action: 3.0.0 failed twice inside that action, once on a GitHub 500 and once
+      # on a failed asset upload, with a 45-minute emulator gate behind each attempt.
+      # Uploading 24 MB is the part that flakes, so it is retried on its own.
       - name: Publish
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', needs.version.outputs.name) || github.ref_name }}
-          name: maik ${{ needs.version.outputs.name }}
-          target_commitish: ${{ github.sha }}
-          body_path: notes.md
-          files: ${{ steps.apk.outputs.path }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', needs.version.outputs.name) || github.ref_name }}
+          APK: ${{ steps.apk.outputs.path }}
+        run: |
+          set -euo pipefail
+
+          # A re-run after a half-finished publish must not fail on "already exists".
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "maik ${{ needs.version.outputs.name }}" --notes-file notes.md
+          else
+            gh release create "$TAG" \
+              --title "maik ${{ needs.version.outputs.name }}" \
+              --notes-file notes.md \
+              --target "${{ github.sha }}"
+          fi
+
+          for attempt in 1 2 3; do
+            if gh release upload "$TAG" "$APK" --clobber; then
+              echo "asset uploaded on attempt $attempt"
+              exit 0
+            fi
+            echo "upload attempt $attempt failed; retrying"
+            sleep $((attempt * 20))
+          done
+
+          echo "::error::The APK could not be uploaded after three attempts."
+          exit 1
+
+      # A release with no APK is worse than no release: the tag looks shipped and
+      # nothing can be installed from it.
+      - name: Check the release really carries the APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && format('v{0}', needs.version.outputs.name) || github.ref_name }}
+        run: |
+          set -euo pipefail
+          count=$(gh release view "$TAG" --json assets --jq '[.assets[] | select(.name | endswith(".apk"))] | length')
+          if [ "$count" -lt 1 ]; then
+            echo "::error::$TAG was published without an APK."
+            exit 1
+          fi
