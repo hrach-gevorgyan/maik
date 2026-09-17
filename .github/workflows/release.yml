@@ -159,9 +159,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          # A re-run after a half-finished publish must not fail on "already exists".
+          # A re-run after a half-finished publish must not fail on "already exists" —
+          # and what it finds is usually a draft the failed attempt left behind, which
+          # nobody but the repository owner can see. Publishing it is the point.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release edit "$TAG" --title "maik ${{ needs.version.outputs.name }}" --notes-file notes.md
+            gh release edit "$TAG" \
+              --title "maik ${{ needs.version.outputs.name }}" \
+              --notes-file notes.md \
+              --draft=false
           else
             gh release create "$TAG" \
               --title "maik ${{ needs.version.outputs.name }}" \
@@ -192,5 +197,11 @@ jobs:
           count=$(gh release view "$TAG" --json assets --jq '[.assets[] | select(.name | endswith(".apk"))] | length')
           if [ "$count" -lt 1 ]; then
             echo "::error::$TAG was published without an APK."
+            exit 1
+          fi
+          # A draft is invisible to everyone but the owner, so a "successful" release
+          # nobody can download would otherwise pass this job.
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != "false" ]; then
+            echo "::error::$TAG is still a draft."
             exit 1
           fi
