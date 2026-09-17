@@ -134,6 +134,12 @@ So maik brings its own model — one nobody can revoke from a dashboard.
 | [docs/RELEASING.md](docs/RELEASING.md) | Versioning, tags, signing, what CI runs |
 | [CHANGELOG.md](CHANGELOG.md) | What changed, in sentences |
 
+## License
+
+maik is [Apache 2.0](LICENSE). The models are not: each carries the licence of
+whoever trained it — Gemma 4 under Apache 2.0, LFM2.5 under the LFM Open License —
+and those terms govern what you may do with what they write.
+
 ## Building
 
 ```bash
