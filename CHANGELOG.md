@@ -7,6 +7,29 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 2.3.0 — 17 September 2026
+
+**Less heat, from the research up.** Writing a reply re-reads the whole model for every
+single word, so heat comes from how many bytes the model is and how hard the phone is
+pushed — not from anything clever in the code.
+
+- **The small model is now the default.** LFM2.5 reads 0.7 GB per word against Gemma's
+  2.6 GB, so it is roughly a third of the heat for most questions. Gemma is still there,
+  now marked as the one that warms the phone up.
+- **The GPU is off by default.** It reads your message faster, but it writes the reply
+  using more power than the processor does, and its heat lands in a smaller spot. The
+  switch is still in Settings for anyone who wants it.
+- **Fewer cores, on purpose.** Writing a reply is limited by memory speed, not by
+  arithmetic, so extra cores add heat without adding words.
+- **Replies are capped** at a few paragraphs rather than half the context window.
+- **maik now eases off before the phone throttles**, not after. It reads Android's own
+  forecast of how close the phone is to overheating and slows down gently, which keeps
+  more speed over a long answer than being throttled does. The chat says when it happens.
+- **A flat, sustainable clock** is requested for the app where the phone supports it,
+  instead of a burst followed by throttling.
+
+---
+
 ## 2.2.0 — 17 September 2026
 
 **Cooler, calmer, and ready to speak other languages.**

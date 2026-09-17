@@ -48,7 +48,9 @@ data class ModelSpec(
     /** Below this much total RAM, the model is likely to be killed or crawl. Guidance only. */
     val minRamBytes: Long,
     /** SHA-256 of the file at [url], as Hugging Face lists it for the LFS object. */
-    val sha256: String
+    val sha256: String,
+    /** True for models big enough that the phone warms up noticeably while they answer. */
+    val heavy: Boolean = false
 ) {
     val fileName: String get() = "$id.litertlm"
     val approxMb: Long get() = approxBytes / 1024 / 1024
@@ -60,6 +62,7 @@ object Models {
         label = "Gemma 4 E2B",
         params = "2B effective",
         blurbRes = R.string.model_blurb_gemma,
+        heavy = true,
         url = "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/" +
             "resolve/b3ca0d2f076785a8f4b2219ddbd2bdb99954eae1/gemma-4-E2B-it.litertlm",
         approxBytes = 2_588_147_712L,
@@ -83,7 +86,13 @@ object Models {
 
     val ALL = listOf(GEMMA_4_E2B, LFM_2_5_1_2B)
 
-    val DEFAULT = GEMMA_4_E2B
+    /**
+     * The small model, on purpose. Decoding re-reads the whole model for every word it
+     * writes, so a 0.7 GB model costs roughly a third of the memory traffic — and a
+     * third of the heat — of a 2.6 GB one. Gemma is there for people who want the
+     * better answers and will accept a warmer phone.
+     */
+    val DEFAULT = LFM_2_5_1_2B
 
     /**
      * A hard ceiling on what may be offered. Phi-4-mini at 3.7 GB ran the phone hot
@@ -132,11 +141,14 @@ class ModelStore(context: Context) {
         private set
 
     /**
-     * On by default on chipsets where the GPU is known to run these models well,
-     * because it reads the prompt many times faster. Off everywhere else.
+     * Off by default, even on chips whose GPU is fast.
+     *
+     * The GPU reads a prompt several times quicker, but writing the reply — which is
+     * where nearly all the time goes — is limited by memory speed, not arithmetic.
+     * Measurements on this class of phone put GPU decoding at roughly 1.4x the energy
+     * per word of the CPU, and its heat lands in a smaller part of the chip.
      */
-    var useGpu: Boolean =
-        if (prefs.contains("gpu")) prefs.getBoolean("gpu", false) else gpuByDefault()
+    var useGpu: Boolean = prefs.getBoolean("gpu", false)
         private set
 
     var themeMode: ThemeMode =
@@ -338,13 +350,6 @@ class ModelStore(context: Context) {
 
         /** Every LiteRT-LM bundle opens with these eight ASCII bytes. */
         const val MAGIC = "LITERTLM"
-
-        /** Snapdragon 8 Gen 3 and newer flagship chips. */
-        val GPU_CHIPS = listOf("SM8650", "SM8635", "SM8750", "SM8735", "SM8850")
-
-        fun gpuByDefault(): Boolean =
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                GPU_CHIPS.any { Build.SOC_MODEL.uppercase().startsWith(it) }
 
         fun sha256Of(file: File): String {
             val digest = java.security.MessageDigest.getInstance("SHA-256")

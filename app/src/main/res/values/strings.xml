@@ -113,7 +113,7 @@ Everything you start stays on this phone.</string>
     <string name="settings_model">MODEL</string>
     <string name="settings_model_downloads_from_huggingface_co">Model downloads from huggingface.co, and nothing else. No analytics, no crash reports, no account. Chats and settings are stored only on this phone, and Android\'s own backup can copy them to your Google account if you have backup switched on — model files are excluded.</string>
     <string name="settings_models">Models</string>
-    <string name="settings_much_faster_at_reading_your">Much faster at reading your message. On by default on recent Snapdragon chips. If the app ever crashes while loading, this turns itself off.</string>
+    <string name="settings_much_faster_at_reading_your">Reads your message several times faster, but writes the reply using more battery and more heat than the processor does. Off by default. If the app ever crashes while loading, this turns itself off.</string>
     <string name="settings_new_chats_use_the_model">New chats use the model marked in use. Each model is downloaded once and works offline after that.</string>
     <string name="settings_no_model_is_loaded_yet">No model is loaded yet.</string>
     <string name="settings_nothing_downloaded_yet">Nothing downloaded yet</string>
@@ -206,4 +206,6 @@ Say no and the download still runs exactly the same.</string>
     <string name="download_notification_cancel">Cancel</string>
     <string name="download_channel_name">Model download</string>
     <string name="download_channel_detail">Shows progress while maik fetches its model.</string>
+    <string name="chat_easing_off">Answering a little slower to keep the phone cool</string>
+    <string name="settings_heavy_model">Warms the phone up: it reads %1$s MB for every word it writes.</string>
 </resources>

@@ -99,7 +99,12 @@ object LocalEngine {
      * a crash no `catch` can see — so a breadcrumb is written around the attempt, and
      * finding it at the next launch turns the GPU off.
      */
+    @OptIn(com.google.ai.edge.litertlm.ExperimentalApi::class)
     private fun open(store: ModelStore, spec: ModelSpec, preferGpu: Boolean, keepCool: Boolean): Pair<Engine, Backend> {
+        // Anything the model thinks to itself must not take up room in its memory of
+        // the chat: that room is re-read for every word it writes.
+        runCatching { com.google.ai.edge.litertlm.ExperimentalFlags.filterChannelContentFromKvCache = true }
+
         // Every busy core is heat. Half of them answers a little slower and keeps the
         // phone comfortable to hold, which matters more than tokens per second.
         val cpu = LmBackend.CPU(Thermal.threadsFor(keepCool))

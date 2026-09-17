@@ -257,6 +257,14 @@ private fun ModelRow(
         )
         Spacer(Modifier.height(8.dp))
         Text(stringResource(model.blurbRes), style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant)
+        if (model.heavy) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                stringResource(R.string.settings_heavy_model, model.approxMb),
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
+            )
+        }
 
         if (tooLittleRam && !installed) {
             Spacer(Modifier.height(8.dp))

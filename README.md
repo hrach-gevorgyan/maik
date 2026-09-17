@@ -149,8 +149,9 @@ catalogue and starts with the `LITERTLM` header is renamed into place.
 **Models stay out of backups.** Android backs up your chats and settings, never the
 multi-gigabyte model files.
 
-**Heat is treated as a feature, not an accident.** "Keep the phone cool" decodes with half
-the cores and stops a reply once Android reports the phone is throttling.
+**Heat is treated as a feature, not an accident.** Writing a reply re-reads the whole model
+per word, so maik defaults to the small model, decodes on the CPU with three threads, caps
+reply length, and eases off using Android's thermal forecast before the hardware throttles.
 
 **All user-facing text lives in `res/values/strings.xml`**, English as the source language,
 ready for translation.

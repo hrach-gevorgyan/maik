@@ -30,6 +30,7 @@ import com.maik.app.ui.theme.*
 import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -110,6 +111,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /** True while Android reports the phone is throttling, so the chat can say so. */
     var phoneIsWarm by mutableStateOf(false)
+        private set
+
+    /** True while maik is deliberately decoding slower to keep the phone cool. */
+    var easingOff by mutableStateOf(false)
         private set
 
     /** Set when a reply was cut short to let the phone cool down. */
@@ -744,6 +749,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 // Not cancellable: the native call must wind down before anything can
                 // close the conversation. stop() ends it early through cancelProcess().
                 withContext(Dispatchers.Default + NonCancellable) {
+                    var workedSince = SystemClock.elapsedRealtime()
                     conversation.sendMessageAsync(prompt).collect { chunk ->
                         val piece = textOf(chunk)
                         if (piece.isEmpty()) return@collect
@@ -752,6 +758,19 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                         chunks++
                         if (turn != generation) return@collect
                         reply.append(piece)
+
+                        // Hand the cores back for a moment when the phone is close to
+                        // throttling. Losing a quarter of the speed here avoids losing
+                        // two thirds of it to the hardware a minute later.
+                        val duty = Thermal.dutyCycle(keepCool)
+                        withContext(Dispatchers.Main) { easingOff = duty < 1f }
+                        if (duty < 1f && now - workedSince >= PACE_EVERY_MS) {
+                            val worked = now - workedSince
+                            delay(((worked / duty) - worked).toLong().coerceAtMost(MAX_PAUSE_MS))
+                            workedSince = SystemClock.elapsedRealtime()
+                        } else if (duty >= 1f) {
+                            workedSince = now
+                        }
                         // Publishing per token re-lays-out the whole reply dozens of
                         // times a second. A few times a second reads the same.
                         if (now - lastPublish >= PUBLISH_EVERY_MS) {
@@ -829,9 +848,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 initialMessages = recent.map {
                     if (it.fromUser) LmMessage.user(it.text) else LmMessage.model(it.text)
                 },
-                // A reply that runs for minutes is usually the model looping, and it is
-                // the worst case for heat. Half the window is more than any answer needs.
-                maxOutputToken = model.contextTokens / 2,
+                // Writing a word costs far more energy than reading one, so the
+                // cheapest answer is a shorter one. Long enough for a few paragraphs,
+                // short enough that a looping model gives up rather than cooking.
+                maxOutputToken = if (keepCool) SHORT_REPLY_TOKENS else LONG_REPLY_TOKENS,
                 samplerConfig = SamplerConfig(
                     topK = 40,
                     topP = 0.95,
@@ -883,6 +903,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private fun finish(conversationId: String, text: String, isError: Boolean, stats: String? = null) {
         streaming = ""
         busy = false
+        easingOff = false
         replace(conversationId) {
             it.copy(
                 messages = it.messages + Message(text, fromUser = false, isError = isError, stats = stats),
@@ -931,5 +952,16 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     companion object {
         private const val PUBLISH_EVERY_MS = 60L
+
+        /** Roughly two or three paragraphs: what an answer on a phone should be. */
+        private const val SHORT_REPLY_TOKENS = 384
+
+        private const val LONG_REPLY_TOKENS = 768
+
+        /** How long to decode between cooling pauses. Short enough to stay responsive. */
+        private const val PACE_EVERY_MS = 250L
+
+        /** No single pause long enough to look like maik has stopped. */
+        private const val MAX_PAUSE_MS = 220L
     }
 }

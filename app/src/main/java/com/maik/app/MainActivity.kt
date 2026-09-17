@@ -1,5 +1,6 @@
 package com.maik.app
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -32,6 +33,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // A long decode is exactly the workload this mode exists for: a lower clock the
+        // phone can hold, instead of a boost followed by throttling.
+        val power = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+        if (power?.isSustainedPerformanceModeSupported == true) {
+            window.setSustainedPerformanceMode(true)
+        }
         if (savedInstanceState == null) handle(intent)
         setContent { Root(vm) }
     }

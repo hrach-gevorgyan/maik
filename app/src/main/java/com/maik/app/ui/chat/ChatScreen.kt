@@ -164,6 +164,11 @@ internal fun ChatScreen(vm: ChatViewModel) {
                 }
             }
 
+            if (vm.easingOff && vm.busy) {
+                item(key = "easing") {
+                    ContextNotice(stringResource(R.string.chat_easing_off))
+                }
+            }
             if (vm.stoppedForHeat) {
                 item(key = "heat") {
                     ContextNotice(
