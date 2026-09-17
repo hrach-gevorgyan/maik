@@ -4,6 +4,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -46,18 +48,17 @@ internal fun ChatScreen(vm: ChatViewModel) {
     val count = convo.messages.size
     var pickingModel by remember { mutableStateOf(false) }
 
-    val atBottom by remember { derivedStateOf { !listState.canScrollForward } }
+    // The list is laid out from the bottom, so a growing reply pushes older messages
+    // up by itself — no scrolling on every token, which is what made streaming judder.
+    val atBottom by remember { derivedStateOf { !listState.canScrollBackward } }
     val scope = rememberCoroutineScope()
 
-    // A new message scrolls into view once. While a reply streams, follow it only if
-    // the reader was already at the bottom — never drag them down while they read.
+    // Your own message always brings you back down; a reply arriving doesn't yank you
+    // away from something you scrolled up to read.
+    val lastFromUser = convo.messages.lastOrNull()?.fromUser == true
     LaunchedEffect(count) {
-        if (count > 0) listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1)
-    }
-    val streamingLength = vm.streaming.length
-    LaunchedEffect(streamingLength) {
-        if (vm.busy && atBottom) {
-            listState.scrollToItem(listState.layoutInfo.totalItemsCount - 1, Int.MAX_VALUE)
+        if (count > 0 && (lastFromUser || listState.firstVisibleItemIndex <= 1)) {
+            listState.animateScrollToItem(0)
         }
     }
 
@@ -85,47 +86,51 @@ internal fun ChatScreen(vm: ChatViewModel) {
         Box(Modifier.weight(1f)) {
         LazyColumn(
             state = listState,
+            reverseLayout = true,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp, Alignment.Bottom)
         ) {
-            if (convo.messages.isEmpty() && !vm.busy) {
-                item(key = "empty") { ChatEmptyState(vm.modelFor(convo).label, ready = vm.stage is Stage.Ready) }
+            // Items are listed newest first, because the list is drawn bottom-up.
+            val last = convo.messages.lastOrNull()
+            if (!vm.busy && last?.fromUser == false && vm.stage is Stage.Ready) {
+                item(key = "again", contentType = 3) {
+                    Box(Modifier.animateItem(fadeInSpec = tween(Motion.NORMAL, delayMillis = 120), placementSpec = null)) {
+                        QuietAction(if (last.isError) "Try again" else "Regenerate") {
+                            buzz()
+                            vm.regenerate()
+                        }
+                    }
+                }
             }
+
+            // The live reply uses the key its saved message will have, so finishing a
+            // reply is a quiet swap of the same row rather than one row vanishing and
+            // another fading in.
+            if (vm.busy) {
+                item(key = "m$count", contentType = 1) {
+                    Box(Modifier.animateItem(placementSpec = null, fadeOutSpec = null)) {
+                        val text = vm.streaming
+                        if (text.isEmpty()) TypingDots() else Bubble(Message(text, fromUser = false))
+                    }
+                }
+            }
+
+            for (index in convo.messages.indices.reversed()) {
+                val msg = convo.messages[index]
+                item(key = "m$index", contentType = if (msg.fromUser) 0 else 1) {
+                    Column(Modifier.animateItem(placementSpec = null, fadeOutSpec = null)) {
+                        Bubble(msg)
+                        if (vm.debugMode && msg.stats != null) SpeedLine(msg.stats)
+                    }
+                }
+            }
+
             if (vm.dropped > 0) {
                 item(key = "dropped") { ContextNotice(vm.dropped) }
             }
-
-            // Keyed by position as well as time: a reply and an error can be stamped in
-            // the same millisecond, and duplicate keys crash the list.
-            itemsIndexed(
-                convo.messages,
-                key = { index, msg -> "$index-${msg.at}" },
-                contentType = { _, msg -> if (msg.fromUser) 0 else 1 }
-            ) { _, msg ->
-                Column(Modifier.animateItem()) {
-                    Bubble(msg)
-                    if (vm.debugMode && msg.stats != null) SpeedLine(msg.stats)
-                }
-            }
-
-            if (vm.busy) {
-                item(key = "live", contentType = 2) {
-                    val text = vm.streaming
-                    if (text.isEmpty()) TypingDots()
-                    else Bubble(Message(text, fromUser = false))
-                }
-            }
-
-            // Offered only when there is something to replace, and nothing running.
-            val last = convo.messages.lastOrNull()
-            if (!vm.busy && last?.fromUser == false && vm.stage is Stage.Ready) {
-                item(key = "again") {
-                    QuietAction(if (last.isError) "Try again" else "Regenerate") {
-                        buzz()
-                        vm.regenerate()
-                    }
-                }
+            if (convo.messages.isEmpty() && !vm.busy) {
+                item(key = "empty") { ChatEmptyState(vm.modelFor(convo).label, ready = vm.stage is Stage.Ready) }
             }
         }
 
@@ -148,7 +153,7 @@ internal fun ChatScreen(vm: ChatViewModel) {
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primary)
                     .clickable {
-                        scope.launch { listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1) }
+                        scope.launch { listState.animateScrollToItem(0) }
                     }
                     .padding(horizontal = 18.dp, vertical = 14.dp)
             )
@@ -200,8 +205,8 @@ private fun StatusStrip(vm: ChatViewModel, model: ModelSpec) {
 
     androidx.compose.animation.AnimatedVisibility(
         visible = stage !is Stage.Ready,
-        enter = fadeIn(tween(Motion.NORMAL)),
-        exit = fadeOut(tween(Motion.NORMAL))
+        enter = expandVertically(tween(Motion.NORMAL, easing = FastOutSlowInEasing)) + fadeIn(tween(Motion.NORMAL)),
+        exit = shrinkVertically(tween(Motion.NORMAL, easing = FastOutSlowInEasing)) + fadeOut(tween(Motion.QUICK))
     ) {
         Column(
             Modifier

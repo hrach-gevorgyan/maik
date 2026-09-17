@@ -7,6 +7,25 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 2.0.1 — 17 September 2026
+
+**Smoother chat, and a likely fix for crashes right after install.**
+
+- **Replies stream smoothly.** The chat is anchored to the bottom, so a reply grows
+  upward on its own instead of the list jumping every few words.
+- **No flicker when a reply finishes.** The live reply turns into the saved one in
+  place, instead of disappearing and fading back in.
+- **Your message brings you down; a reply doesn't yank you** away from something you
+  scrolled up to read.
+- **The loading and download strip slides open and closed** instead of popping in and
+  shoving the messages around.
+- **Calmer typing dots** that cost almost nothing to draw.
+- **GPU on Samsung and other phones:** maik now declares the phone's OpenCL library,
+  which Android 12 and newer hide from apps otherwise. Without it, the GPU load could
+  crash on the first launches until maik switched to the CPU.
+
+---
+
 ## 2.0.0 — 17 September 2026
 
 **A solid base.** Everything from 1.7 to 1.9 — one warm engine, the GPU on capable

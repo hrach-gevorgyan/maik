@@ -6,6 +6,7 @@ import android.content.Context
 import android.os.Build
 import android.widget.Toast
 import androidx.compose.animation.core.*
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -53,6 +54,7 @@ internal fun Bubble(msg: Message) {
         Box(
             Modifier
                 .widthIn(max = 330.dp)
+                .animateContentSize(tween(Motion.QUICK, easing = LinearOutSlowInEasing))
                 .clip(
                     if (msg.fromUser) RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp)
                     else RoundedCornerShape(20.dp, 20.dp, 20.dp, 6.dp)

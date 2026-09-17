@@ -20,6 +20,13 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Maik">
 
+        <!-- The GPU backend needs the vendor's OpenCL library, which Android 12+ hides
+             from apps unless it is declared. Optional, so phones without it still install. -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-car.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-pixel.so" android:required="false" />
+        <uses-native-library android:name="libvndksupport.so" android:required="false" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"

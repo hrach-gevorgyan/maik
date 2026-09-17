@@ -48,19 +48,24 @@ fun TypingDots() {
         verticalAlignment = Alignment.CenterVertically
     ) {
         repeat(3) { i ->
-            val a by t.animateFloat(
-                initialValue = 0.2f,
+            val a = t.animateFloat(
+                initialValue = 0.25f,
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(
-                    tween(600, delayMillis = i * 160, easing = LinearEasing),
-                    RepeatMode.Reverse
+                    keyframes {
+                        durationMillis = 1200
+                        0.25f at 0
+                        0.25f at i * 150
+                        1f at i * 150 + 300 using FastOutSlowInEasing
+                        0.25f at i * 150 + 650
+                    }
                 ),
                 label = "d$i"
             )
             Box(
                 Modifier
                     .size(7.dp)
-                    .alpha(a)
+                    .graphicsLayer { alpha = a.value }
                     .background(MaterialTheme.colorScheme.onSurfaceVariant, CircleShape)
             )
         }
