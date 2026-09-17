@@ -35,10 +35,6 @@ import com.maik.app.*
 import com.maik.app.R
 import com.maik.app.data.*
 import com.maik.app.engine.*
-import com.maik.app.ui.components.*
-import com.maik.app.ui.list.*
-import com.maik.app.ui.settings.*
-import com.maik.app.ui.setup.*
 import com.maik.app.ui.theme.*
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -145,7 +141,7 @@ internal fun SelectableMessageSheet(text: String, onDismiss: () -> Unit) {
             Text(
                 stringResource(R.string.chat_press_and_hold_to_select),
                 style = MaterialTheme.typography.labelSmall,
-                color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
+                color = scheme.muted
             )
             Spacer(Modifier.height(12.dp))
             SelectionContainer {

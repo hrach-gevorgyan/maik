@@ -5,12 +5,6 @@ import android.os.Build
 import com.maik.app.*
 import com.maik.app.R
 import com.maik.app.engine.*
-import com.maik.app.ui.chat.*
-import com.maik.app.ui.components.*
-import com.maik.app.ui.list.*
-import com.maik.app.ui.settings.*
-import com.maik.app.ui.setup.*
-import com.maik.app.ui.theme.*
 import java.io.File
 import java.io.FileOutputStream
 import java.io.RandomAccessFile
@@ -57,7 +51,6 @@ data class ModelSpec(
     val vision: Boolean = false
 ) {
     val fileName: String get() = "$id.litertlm"
-    val approxMb: Long get() = approxBytes / 1024 / 1024
 }
 
 object Models {
@@ -120,17 +113,17 @@ const val DEFAULT_SYSTEM_PROMPT =
     "You are maik, an assistant running entirely on the user's phone, offline.\n\n" +
         "You have no internet, no search, no apps, no location and no live data. You " +
         "cannot look anything up, check prices or availability, book or order anything, " +
-        "send messages, open links, or read anything the user has not written to you. " +
-        "Never offer to do those things and never ask for details you could only use by " +
-        "doing them.\n\n" +
-        "Answer from what you already know, in the first reply, even when the answer can " +
-        "only be general advice. Be clear and concise.\n\n" +
-        "Never invent specifics. If you are not sure of a name, number, price, timetable, " +
-        "address, quotation, command or line of code, say you are not sure rather than " +
-        "producing something that looks right. \"I do not know\" and \"you would need to " +
-        "check\" are good answers. Say when something may have changed since you were " +
-        "trained. If a question is vague, answer the most likely reading of it and say " +
-        "which reading you took, instead of asking the user to start again."
+        "send messages or open links. Never offer to do those things and never ask for " +
+        "details you could only use by doing them.\n\n" +
+        "Be useful and be interesting. Commit to an answer in the first reply: give the " +
+        "specifics you are confident about, and where the exact figure or name would " +
+        "need looking up, give the shape of the answer instead — how it usually works, " +
+        "what it roughly costs, what to watch out for. Have an opinion when one is " +
+        "asked for. Enjoy the questions that are meant to be fun.\n\n" +
+        "Flag uncertainty in passing, not as a paragraph: one short clause is enough, " +
+        "and never open with a disclaimer. Do not invent an exact command, price, " +
+        "timetable or quotation to look thorough — say that part needs checking and " +
+        "answer the rest. Keep it concise."
 
 sealed interface Download {
     /** [verifying] is true while the finished file is checked, which takes a while. */
@@ -181,8 +174,25 @@ class ModelStore(context: Context) {
             .getOrDefault(ThemeMode.SYSTEM)
         private set
 
+    /**
+     * The instructions sent before every conversation.
+     *
+     * Alongside the text, maik stores the default it was based on. If the two match,
+     * the words are maik's own and a new version is free to improve them; if they
+     * differ, the user wrote this and it is left exactly as typed. Prompts saved
+     * before 3.0 carry no base and are treated as maik's, which is true of every
+     * install that never opened that setting.
+     */
     var systemPrompt: String = prefs.getString("system", null)
-        .let { saved -> if (saved == null || saved in SUPERSEDED_PROMPTS) DEFAULT_SYSTEM_PROMPT else saved }
+        .let { saved ->
+            val base = prefs.getString("system_base", null)
+            val maiksOwnWords = saved == null ||
+                saved == base ||
+                // Written before 3.0, when the base was not recorded: only maik's own
+                // wording of the day may be replaced, never something typed by hand.
+                (base == null && saved in PRE_3_0_DEFAULTS)
+            if (maiksOwnWords) DEFAULT_SYSTEM_PROMPT else saved
+        }
         private set
 
     fun select(next: ModelSpec) {
@@ -244,7 +254,10 @@ class ModelStore(context: Context) {
 
     fun setSystemPrompt(text: String) {
         systemPrompt = text.trim().ifEmpty { DEFAULT_SYSTEM_PROMPT }
-        prefs.edit().putString("system", systemPrompt).apply()
+        prefs.edit()
+            .putString("system", systemPrompt)
+            .putString("system_base", DEFAULT_SYSTEM_PROMPT)
+            .apply()
     }
 
     fun fileFor(s: ModelSpec = spec): File = File(dir, s.fileName)
@@ -409,10 +422,12 @@ class ModelStore(context: Context) {
 
     internal companion object {
         /**
-         * Earlier default instructions. Someone who never wrote their own gets the
-         * current wording; anything they typed themselves is left alone.
+         * The default instructions as maik worded them before 3.0, when nothing
+         * recorded which default a saved prompt came from. Kept so an upgrade can tell
+         * its own old wording from something the user wrote. Nothing is added here
+         * after 3.0: `system_base` answers the question from now on.
          */
-        val SUPERSEDED_PROMPTS = setOf(
+        val PRE_3_0_DEFAULTS = setOf(
             "You are maik, a helpful assistant running entirely on the user's phone. " +
                 "Answer clearly and concisely.",
             "You are maik, an assistant running entirely on the user's phone, offline.\n\n" +
@@ -424,7 +439,21 @@ class ModelStore(context: Context) {
                 "Answer from what you already know, in the first reply, even when the answer can " +
                 "only be general advice. Say plainly when something needs checking online, needs a " +
                 "newer source than your training, or when you are unsure — then give the best " +
-                "answer you can anyway. Be clear and concise."
+                "answer you can anyway. Be clear and concise.",
+            "You are maik, an assistant running entirely on the user's phone, offline.\n\n" +
+                "You have no internet, no search, no apps, no location and no live data. You " +
+                "cannot look anything up, check prices or availability, book or order anything, " +
+                "send messages, open links, or read anything the user has not written to you. " +
+                "Never offer to do those things and never ask for details you could only use by " +
+                "doing them.\n\n" +
+                "Answer from what you already know, in the first reply, even when the answer can " +
+                "only be general advice. Be clear and concise.\n\n" +
+                "Never invent specifics. If you are not sure of a name, number, price, timetable, " +
+                "address, quotation, command or line of code, say you are not sure rather than " +
+                "producing something that looks right. \"I do not know\" and \"you would need to " +
+                "check\" are good answers. Say when something may have changed since you were " +
+                "trained. If a question is vague, answer the most likely reading of it and say " +
+                "which reading you took, instead of asking the user to start again."
         )
 
         /** Anything smaller than this is a stub or an error page, not a model. */

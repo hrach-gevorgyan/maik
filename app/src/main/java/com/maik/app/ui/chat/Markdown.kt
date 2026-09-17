@@ -37,10 +37,6 @@ import com.maik.app.*
 import com.maik.app.R
 import com.maik.app.data.*
 import com.maik.app.engine.*
-import com.maik.app.ui.components.*
-import com.maik.app.ui.list.*
-import com.maik.app.ui.settings.*
-import com.maik.app.ui.setup.*
 import com.maik.app.ui.theme.*
 
 /**

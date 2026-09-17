@@ -25,11 +25,6 @@ import com.maik.app.*
 import com.maik.app.R
 import com.maik.app.data.*
 import com.maik.app.engine.*
-import com.maik.app.ui.chat.*
-import com.maik.app.ui.components.*
-import com.maik.app.ui.list.*
-import com.maik.app.ui.settings.*
-import com.maik.app.ui.setup.*
 
 /** HK Grotesk, shipped as a single variable font and instanced per weight. */
 @OptIn(ExperimentalTextApi::class)
@@ -192,3 +187,12 @@ fun MaikTheme(mode: ThemeMode = ThemeMode.SYSTEM, content: @Composable () -> Uni
 
     MaterialTheme(colorScheme = scheme, typography = MaikType, content = content)
 }
+
+/**
+ * Secondary text: present, but not competing with what it explains.
+ *
+ * One value in one place. Scattering the same alpha through forty call sites made it
+ * drift — three shades of "quiet" appeared where one was meant.
+ */
+val androidx.compose.material3.ColorScheme.muted: androidx.compose.ui.graphics.Color
+    @Composable get() = onSurfaceVariant.copy(alpha = 0.64f)

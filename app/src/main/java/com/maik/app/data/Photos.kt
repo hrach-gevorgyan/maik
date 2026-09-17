@@ -15,8 +15,16 @@ class Photos(context: Context) {
     private val app = context.applicationContext
     private val dir = File(app.filesDir, "images").apply { mkdirs() }
 
-    /** A private, shrunk JPEG copy of [uri], or null if it couldn't be read. */
-    fun importFrom(uri: Uri): File? = runCatching {
+    /** Where the next import will land, known before the copying starts. */
+    fun reserve(): File = File(dir, "${UUID.randomUUID()}.jpg")
+
+    /**
+     * A private, shrunk JPEG copy of [uri] at [out], or null if it couldn't be read.
+     *
+     * The destination is chosen by the caller so it can be protected from [keepOnly]
+     * for as long as the copy takes.
+     */
+    fun importFrom(uri: Uri, out: File): File? = runCatching {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         app.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
@@ -28,10 +36,14 @@ class Photos(context: Context) {
         } ?: return null
 
         val scaled = scaleDown(rotateUpright(decoded, uri))
-        val out = File(dir, "${UUID.randomUUID()}.jpg")
         out.outputStream().use { scaled.compress(Bitmap.CompressFormat.JPEG, 88, it) }
         out
     }.getOrNull()
+
+    /** Removes the full-size camera capture once a shrunk copy has been made. */
+    fun clearCameraCapture() {
+        runCatching { cameraTarget().delete() }
+    }
 
     /** Removes photos no message refers to any more. */
     fun keepOnly(paths: Set<String>) {

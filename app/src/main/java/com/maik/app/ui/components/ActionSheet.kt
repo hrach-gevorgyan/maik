@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.maik.app.ui.theme.muted
 import com.maik.app.ui.theme.tap
 
 /** One line in an [ActionSheet]. [destructive] paints it in the error colour. */
@@ -58,7 +59,7 @@ fun ActionSheet(
                         Text(
                             subtitle,
                             style = MaterialTheme.typography.labelSmall,
-                            color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
+                            color = scheme.muted
                         )
                     }
                 }
@@ -85,10 +86,4 @@ fun ActionSheet(
             }
         }
     }
-}
-
-/** A plain-coloured row of text, for sheets that show content rather than actions. */
-@Composable
-fun SheetLabel(text: String, color: Color = MaterialTheme.colorScheme.onSurfaceVariant) {
-    Text(text, style = MaterialTheme.typography.labelSmall, color = color)
 }

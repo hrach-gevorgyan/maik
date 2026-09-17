@@ -7,12 +7,6 @@ import com.google.ai.edge.litertlm.Engine
 import com.google.ai.edge.litertlm.EngineConfig
 import com.maik.app.*
 import com.maik.app.data.*
-import com.maik.app.ui.chat.*
-import com.maik.app.ui.components.*
-import com.maik.app.ui.list.*
-import com.maik.app.ui.settings.*
-import com.maik.app.ui.setup.*
-import com.maik.app.ui.theme.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -49,6 +43,34 @@ object LocalEngine {
     @Volatile
     var backend: Backend = Backend.NONE
         private set
+
+    /** True while a reply is being written, so nothing releases the engine underneath it. */
+    @Volatile
+    var generating: Boolean = false
+
+    /**
+     * Gives the model back to the system when memory is short.
+     *
+     * A loaded engine is 2.6 GB of resident memory that maik keeps on purpose, so the
+     * next question is answered at once. That is a fine trade while maik is on screen
+     * and an unreasonable one once the user has moved to the camera: the system's only
+     * other way to reclaim it is to kill the process. Reloading costs seconds; being
+     * killed costs the conversation's context as well.
+     */
+    /**
+     * Told before the engine is closed, so whoever holds an open conversation can let
+     * go of it first. Closing a conversation whose engine is already gone is a native
+     * crash, not an exception.
+     */
+    @Volatile
+    var onRelease: (() -> Unit)? = null
+
+    suspend fun releaseForMemory(): Boolean = withContext(lifecycle) {
+        if (engine == null || generating) return@withContext false
+        onRelease?.invoke()
+        closeNow()
+        true
+    }
 
     /**
      * Loads [spec], replacing whatever was loaded. Returns at once if it already is.

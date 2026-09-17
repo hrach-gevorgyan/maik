@@ -21,12 +21,14 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.maik.app.data.*
 import com.maik.app.engine.*
-import com.maik.app.ui.chat.*
-import com.maik.app.ui.components.*
-import com.maik.app.ui.list.*
-import com.maik.app.ui.settings.*
-import com.maik.app.ui.setup.*
-import com.maik.app.ui.theme.*
+import com.maik.app.ui.chat.ChatScreen
+import com.maik.app.ui.list.ConversationListScreen
+import com.maik.app.ui.settings.SettingsScreen
+import com.maik.app.ui.setup.SetupScreen
+import com.maik.app.ui.theme.LocalHaptics
+import com.maik.app.ui.theme.backward
+import com.maik.app.ui.theme.forward
+import com.maik.app.ui.theme.MaikTheme
 
 class MainActivity : ComponentActivity() {
     private val vm: ChatViewModel by viewModels()

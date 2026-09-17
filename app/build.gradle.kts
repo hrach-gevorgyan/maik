@@ -7,8 +7,8 @@ plugins {
 
 // Single source of truth for the version, overridable from CI:
 //   ./gradlew assembleRelease -PmaikVersionName=1.2.0 -PmaikVersionCode=5
-val maikVersionName: String = (findProperty("maikVersionName") as String?) ?: "2.9.3"
-val maikVersionCode: Int = (findProperty("maikVersionCode") as String?)?.toInt() ?: 20903
+val maikVersionName: String = (findProperty("maikVersionName") as String?) ?: "3.0.0"
+val maikVersionCode: Int = (findProperty("maikVersionCode") as String?)?.toInt() ?: 30000
 
 // Set by the release workflow. Keeps emulator-only architectures out of an APK
 // that real people will install.
@@ -138,5 +138,4 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
-    androidTestImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 }

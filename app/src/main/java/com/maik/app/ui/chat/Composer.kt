@@ -19,7 +19,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.contentDescription
@@ -28,14 +27,8 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.maik.app.*
 import com.maik.app.R
-import com.maik.app.data.*
-import com.maik.app.engine.*
 import com.maik.app.ui.components.*
-import com.maik.app.ui.list.*
-import com.maik.app.ui.settings.*
-import com.maik.app.ui.setup.*
 import com.maik.app.ui.theme.*
 
 @Composable
@@ -102,9 +95,13 @@ internal fun Composer(
                     color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
                 )
             }
-            // Text set from outside (a starter) puts the cursor at its end, ready to type on.
+            // The hoisted string is the one truth; this only adds the cursor to it. Text
+            // arriving from outside (a starter, or sending clearing the box) puts the
+            // cursor at the end, while typing leaves it wherever it already was.
             var field by remember { mutableStateOf(TextFieldValue(value, TextRange(value.length))) }
-            if (field.text != value) field = TextFieldValue(value, TextRange(value.length))
+            LaunchedEffect(value) {
+                if (field.text != value) field = TextFieldValue(value, TextRange(value.length))
+            }
             BasicTextField(
                 value = field,
                 onValueChange = {

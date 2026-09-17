@@ -30,11 +30,6 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import com.maik.app.*
 import com.maik.app.data.*
 import com.maik.app.engine.*
-import com.maik.app.ui.chat.*
-import com.maik.app.ui.components.*
-import com.maik.app.ui.list.*
-import com.maik.app.ui.settings.*
-import com.maik.app.ui.setup.*
 import kotlinx.coroutines.delay
 
 /**
@@ -51,11 +46,6 @@ object Motion {
     /** Switching light and dark: slow enough to read as a change of light, not a flash. */
     const val THEME = 420
 
-    /** For anything that should feel physical rather than timed. */
-    fun <T> springy() = spring<T>(
-        dampingRatio = Spring.DampingRatioLowBouncy,
-        stiffness = Spring.StiffnessMediumLow
-    )
 }
 
 /** Going deeper slides in from the right; coming back slides out to the right. */

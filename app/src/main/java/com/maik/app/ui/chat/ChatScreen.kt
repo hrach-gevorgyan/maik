@@ -1,6 +1,5 @@
 package com.maik.app.ui.chat
 
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -10,7 +9,6 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -20,7 +18,6 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,11 +27,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.Role
@@ -45,17 +43,34 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import com.maik.app.*
 import com.maik.app.R
 import com.maik.app.data.*
-import com.maik.app.engine.*
 import com.maik.app.ui.components.*
-import com.maik.app.ui.list.*
-import com.maik.app.ui.settings.*
-import com.maik.app.ui.setup.*
 import com.maik.app.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/** Must match the provider authority declared in AndroidManifest.xml. */
+private const val FILE_PROVIDER_AUTHORITY = "com.maik.app.files"
+
+/** A short message over whatever is on screen; long for anything worth reading twice. */
+internal fun toast(context: android.content.Context, text: String, long: Boolean = false) {
+    android.widget.Toast.makeText(
+        context, text,
+        if (long) android.widget.Toast.LENGTH_LONG else android.widget.Toast.LENGTH_SHORT
+    ).show()
+}
+
+/**
+ * A field that has only just entered the tree cannot take focus yet, so this waits
+ * for the frame that lays it out. Focus is refused outright if the field has gone.
+ */
+private suspend fun focusAfterFirstFrame(target: FocusRequester) {
+    withFrameNanos { }
+    runCatching { target.requestFocus() }
+}
 
 /* ================= chat ================= */
 
@@ -81,7 +96,7 @@ internal fun ChatScreen(vm: ChatViewModel) {
     }
     val count = convo.messages.size
     var pickingModel by remember { mutableStateOf(false) }
-    val composerFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val composerFocus = remember { FocusRequester() }
     val reader = rememberReadAloud()
     // Voice typing through the phone's own recogniser, which works offline where its
     // language pack is installed. Whatever it heard goes into the message box to check.
@@ -101,17 +116,16 @@ internal fun ChatScreen(vm: ChatViewModel) {
     val pickPhoto = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
     ) { uri ->
-        if (uri != null) vm.attachPhoto(uri) {
-            android.widget.Toast.makeText(photoContext, photoFailed, android.widget.Toast.LENGTH_SHORT).show()
-        }
+        if (uri != null) vm.attachPhoto(uri) { toast(photoContext, photoFailed) }
     }
-    var cameraUri by remember { mutableStateOf<android.net.Uri?>(null) }
     val takePhoto = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.TakePicture()
     ) { saved ->
-        val uri = cameraUri
-        if (saved && uri != null) vm.attachPhoto(uri) {
-            android.widget.Toast.makeText(photoContext, photoFailed, android.widget.Toast.LENGTH_SHORT).show()
+        // The camera is the moment Android is most likely to kill us, so nothing about
+        // the photo is kept in memory: the target file is fixed and rebuilt here.
+        if (saved) {
+            val uri = FileProvider.getUriForFile(photoContext, FILE_PROVIDER_AUTHORITY, vm.cameraTarget())
+            vm.attachPhoto(uri) { toast(photoContext, photoFailed) }
         }
     }
     val voicePrompt = stringResource(R.string.voice_prompt)
@@ -261,11 +275,11 @@ internal fun ChatScreen(vm: ChatViewModel) {
                 }
             }
 
-            // The live reply uses the key its saved message will have, so finishing a
-            // reply is a quiet swap of the same row rather than one row vanishing and
-            // another fading in.
+            // The live reply has no timestamp yet, so it keeps a key of its own. Neither
+            // it nor the finished message animates in or out — fade and placement specs
+            // are off on both — so the handover is still a silent swap in the same slot.
             if (vm.busy) {
-                item(key = "m$count", contentType = 1) {
+                item(key = "live", contentType = 1) {
                     Box(Modifier.animateItem(placementSpec = null, fadeOutSpec = null)) {
                         val text = vm.streaming
                         // The dots hand over to the first words instead of blinking out.
@@ -287,9 +301,13 @@ internal fun ChatScreen(vm: ChatViewModel) {
                 }
             }
 
+            // Keyed on when each message was written, not where it sits: deleting or
+            // editing one otherwise renumbers everything below it and the row
+            // animations play on the wrong messages.
+            val keys = messageKeys(convo.messages)
             for (index in convo.messages.indices.reversed()) {
                 val msg = convo.messages[index]
-                item(key = "m$index", contentType = if (msg.fromUser) 0 else 1) {
+                item(key = keys[index], contentType = if (msg.fromUser) 0 else 1) {
                     Column(Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null)) {
                         val body = @Composable {
                             Column {
@@ -325,10 +343,7 @@ internal fun ChatScreen(vm: ChatViewModel) {
                     onStarter = { prefix ->
                         input = prefix
                         // Straight into typing the rest, keyboard up.
-                        scope.launch {
-                            withFrameNanos { }
-                            runCatching { composerFocus.requestFocus() }
-                        }
+                        scope.launch { focusAfterFirstFrame(composerFocus) }
                     }
                 )
             }
@@ -362,10 +377,16 @@ internal fun ChatScreen(vm: ChatViewModel) {
         }
         }
 
+        // A message can be deleted while its menu is open — from a backup restore, or
+        // the reply it belonged to being regenerated — so the menu closes itself.
+        LaunchedEffect(menuFor, count) {
+            if (menuFor != null && convo.messages.getOrNull(menuFor!!) == null) menuFor = null
+        }
+
         // Long press on any message: copy, select, share, edit, delete.
         menuFor?.let { index ->
             val msg = convo.messages.getOrNull(index)
-            if (msg == null) menuFor = null else {
+            if (msg != null) {
                 val actions = buildList {
                     add(SheetAction(stringResource(R.string.chat_copy)) {
                         copyToClipboard(context, msg.text)
@@ -387,9 +408,7 @@ internal fun ChatScreen(vm: ChatViewModel) {
                             } else if (reader.available) {
                                 reader.speak(msg.at, msg.text)
                             } else {
-                                android.widget.Toast.makeText(
-                                    context, context.getString(R.string.voice_no_speech_engine), android.widget.Toast.LENGTH_LONG
-                                ).show()
+                                toast(context, context.getString(R.string.voice_no_speech_engine), long = true)
                             }
                             menuFor = null
                         })
@@ -421,9 +440,7 @@ internal fun ChatScreen(vm: ChatViewModel) {
                 actions = listOf(
                     SheetAction(stringResource(R.string.photo_take)) {
                         choosingPhoto = false
-                        val file = vm.cameraTarget()
-                        val uri = androidx.core.content.FileProvider.getUriForFile(context, "com.maik.app.files", file)
-                        cameraUri = uri
+                        val uri = FileProvider.getUriForFile(context, FILE_PROVIDER_AUTHORITY, vm.cameraTarget())
                         runCatching { takePhoto.launch(uri) }
                     },
                     SheetAction(stringResource(R.string.photo_choose)) {
@@ -488,9 +505,7 @@ internal fun ChatScreen(vm: ChatViewModel) {
                     .putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                     .putExtra(android.speech.RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
                     .putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, voicePrompt)
-                runCatching { voice.launch(intent) }.onFailure {
-                    android.widget.Toast.makeText(context, voiceUnavailable, android.widget.Toast.LENGTH_SHORT).show()
-                }
+                runCatching { voice.launch(intent) }.onFailure { toast(context, voiceUnavailable) }
             },
             waitingHint = when (vm.stage) {
                 is Stage.NeedsModel -> stringResource(R.string.chat_hint_needs_model)
@@ -868,12 +883,9 @@ private fun FindBar(
     onClose: () -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
-    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val focus = remember { FocusRequester() }
     val label = stringResource(R.string.find_in_chat)
-    LaunchedEffect(Unit) {
-        withFrameNanos { }
-        runCatching { focus.requestFocus() }
-    }
+    LaunchedEffect(Unit) { focusAfterFirstFrame(focus) }
     Row(
         Modifier
             .fillMaxWidth()

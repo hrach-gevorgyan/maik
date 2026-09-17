@@ -42,11 +42,7 @@ import androidx.core.content.ContextCompat
 import com.maik.app.*
 import com.maik.app.R
 import com.maik.app.data.*
-import com.maik.app.engine.*
-import com.maik.app.ui.chat.*
 import com.maik.app.ui.components.*
-import com.maik.app.ui.list.*
-import com.maik.app.ui.settings.*
 import com.maik.app.ui.theme.*
 
 /* ================= setup / download ================= */
@@ -131,6 +127,15 @@ fun SetupScreen(vm: ChatViewModel) {
                         stringResource(R.string.setup_wi_fi_recommended_nothing_you),
                         style = MaterialTheme.typography.bodyMedium,
                         color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
+                    )
+                    Spacer(Modifier.height(20.dp))
+                    // Said once, here, before anyone spends 2.6 GB on it: this is a
+                    // phone-sized model, not a data centre. Better honest now than
+                    // disappointing later, and it is never repeated in the app.
+                    Text(
+                        stringResource(R.string.setup_expectations),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = scheme.onSurfaceVariant.copy(alpha = 0.5f)
                     )
                     Spacer(Modifier.height(20.dp))
                     QuietAction(stringResource(R.string.setup_choose_a_different_model), onClick = vm::openModels)
@@ -229,7 +234,8 @@ fun SetupScreen(vm: ChatViewModel) {
         // On a fresh install there is nowhere to go back to and nothing to look at
         // without a model, so no exit is offered. Reached from a chat or Settings, Back
         // returns there.
-        if (vm.stage !is Stage.Ready && !(vm.conversations.isEmpty() && vm.installedModels().isEmpty())) {
+        val installed = remember(vm.storageVersion) { vm.installedModels() }
+        if (vm.stage !is Stage.Ready && !(vm.conversations.isEmpty() && installed.isEmpty())) {
             Spacer(Modifier.height(24.dp))
             QuietAction(stringResource(R.string.setup_back), onClick = vm::back)
         }

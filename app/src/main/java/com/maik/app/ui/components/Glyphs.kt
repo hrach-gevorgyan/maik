@@ -14,16 +14,11 @@ import androidx.compose.ui.unit.dp
 import com.maik.app.*
 import com.maik.app.data.*
 import com.maik.app.engine.*
-import com.maik.app.ui.chat.*
-import com.maik.app.ui.list.*
-import com.maik.app.ui.settings.*
-import com.maik.app.ui.setup.*
-import com.maik.app.ui.theme.*
 
 /* ---- hand-drawn glyphs, so no icon dependency is needed ---- */
 
 @Composable
-fun ArrowUp(tint: Color) {
+internal fun ArrowUp(tint: Color) {
     Canvas(Modifier.size(20.dp)) {
         val w = size.width
         val s = w * 0.12f
@@ -34,7 +29,7 @@ fun ArrowUp(tint: Color) {
 }
 
 @Composable
-fun StopSquare(tint: Color) {
+internal fun StopSquare(tint: Color) {
     Canvas(Modifier.size(16.dp)) {
         val w = size.width
         drawRoundRect(
@@ -47,7 +42,7 @@ fun StopSquare(tint: Color) {
 }
 
 @Composable
-fun ChevronLeft(tint: Color) {
+internal fun ChevronLeft(tint: Color) {
     Canvas(Modifier.size(18.dp)) {
         val w = size.width
         val s = w * 0.13f
@@ -57,7 +52,7 @@ fun ChevronLeft(tint: Color) {
 }
 
 @Composable
-fun Plus(tint: Color) {
+internal fun Plus(tint: Color) {
     Canvas(Modifier.size(18.dp)) {
         val w = size.width
         val s = w * 0.13f
@@ -67,7 +62,7 @@ fun Plus(tint: Color) {
 }
 
 @Composable
-fun Sliders(tint: Color) {
+internal fun Sliders(tint: Color) {
     Canvas(Modifier.size(18.dp)) {
         val w = size.width
         val s = w * 0.13f
@@ -80,7 +75,7 @@ fun Sliders(tint: Color) {
 }
 
 @Composable
-fun Magnifier(tint: Color) {
+internal fun Magnifier(tint: Color) {
     Canvas(Modifier.size(20.dp)) {
         val w = size.width
         val s = w * 0.11f
@@ -90,7 +85,7 @@ fun Magnifier(tint: Color) {
 }
 
 @Composable
-fun ChevronVertical(tint: Color, up: Boolean) {
+internal fun ChevronVertical(tint: Color, up: Boolean) {
     Canvas(Modifier.size(18.dp)) {
         val w = size.width
         val s = w * 0.13f
@@ -102,7 +97,7 @@ fun ChevronVertical(tint: Color, up: Boolean) {
 }
 
 @Composable
-fun Microphone(tint: Color) {
+internal fun Microphone(tint: Color) {
     Canvas(Modifier.size(20.dp)) {
         val w = size.width
         val s = w * 0.1f
@@ -126,7 +121,7 @@ fun Microphone(tint: Color) {
 }
 
 @Composable
-fun CameraGlyph(tint: Color) {
+internal fun CameraGlyph(tint: Color) {
     Canvas(Modifier.size(22.dp)) {
         val w = size.width
         val s = w * 0.09f

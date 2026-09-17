@@ -49,4 +49,28 @@ class StringResourcesTest {
     fun `there are strings to check`() {
         assertTrue(strings.size > 100)
     }
+
+    /**
+     * Text nobody shows is still text somebody has to translate. Names are looked for
+     * as `R.string.name` in Kotlin and `@string/name` in XML; nothing in maik builds a
+     * resource name at run time, so a name that appears nowhere really is unused.
+     */
+    @Test
+    fun `every string is used somewhere`() {
+        val roots = listOf("src/main", "app/src/main").map(::File).filter { it.exists() }
+        val sources = roots.flatMap { root ->
+            root.walkTopDown().filter { it.isFile && (it.extension == "kt" || it.extension == "xml") }
+        }
+        val text = sources
+            .filterNot { it.path.replace('\\', '/').endsWith("res/values/strings.xml") }
+            .joinToString("\n") { it.readText() }
+        val unused = strings
+            .map { (name, _) -> name.substringBefore('[') }
+            .distinct()
+            .filterNot { name ->
+                listOf("R.string.$name", "R.plurals.$name", "@string/$name", "@plurals/$name")
+                    .any(text::contains)
+            }
+        assertTrue("Strings nobody shows: $unused", unused.isEmpty())
+    }
 }

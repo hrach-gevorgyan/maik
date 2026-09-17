@@ -13,12 +13,6 @@ import androidx.core.app.NotificationCompat
 import com.maik.app.*
 import com.maik.app.R
 import com.maik.app.engine.*
-import com.maik.app.ui.chat.*
-import com.maik.app.ui.components.*
-import com.maik.app.ui.list.*
-import com.maik.app.ui.settings.*
-import com.maik.app.ui.setup.*
-import com.maik.app.ui.theme.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -57,8 +51,8 @@ object DownloadBus {
 class DownloadService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob())
-    private var job: Job? = null
-    private var lastNotified = 0L
+    @Volatile private var job: Job? = null
+    @Volatile private var lastNotified = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 

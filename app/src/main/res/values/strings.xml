@@ -11,6 +11,8 @@
     <string name="chat_continue_download">Continue download</string>
     <string name="chat_copied">Copied</string>
     <string name="chat_copy">Copy</string>
+    <string name="chat_history_unreadable">maik can\'t read your saved chats, so it won\'t save over them. Restart maik — nothing new is kept until you do.</string>
+    <string name="chat_could_not_save">Couldn\'t save this chat — the phone may be out of storage.</string>
     <string name="chat_delete_message">Delete message</string>
     <string name="chat_download">Download</string>
     <string name="chat_download_again">Download again</string>
@@ -97,7 +99,7 @@ Everything you start stays on this phone.</string>
     <string name="settings_mb_of_models">%1$s of models</string>
     <string name="settings_mb_of_models_on_this">%1$s of models on this phone.</string>
     <string name="settings_model">MODEL</string>
-    <string name="settings_model_downloads_from_huggingface_co">Model downloads from huggingface.co, and nothing else. No analytics, no crash reports, no account. Chats and settings are stored only on this phone, and Android\'s own backup can copy them to your Google account if you have backup switched on — model files are excluded.</string>
+    <string name="settings_model_downloads_from_huggingface_co">Model downloads from huggingface.co, and nothing else. No analytics, no crash reports, no account. Your chats and photos stay on this phone: they are left out of Android\'s cloud backup, so not even Google gets a copy. Settings do travel, and moving to a new phone directly carries everything across.</string>
     <string name="settings_models">Models</string>
     <string name="settings_much_faster_at_reading_your">Reads your message faster, but writes replies with more battery and heat than the processor. If maik ever closes while starting on it, this turns itself off. Changing this restarts the model, which takes a few seconds.</string>
     <string name="settings_new_chats_use_the_model">New chats use the model marked in use. Each model is downloaded once and works offline after that.</string>
@@ -129,6 +131,7 @@ Everything you start stays on this phone.</string>
     <string name="setup_continue_download">Continue download</string>
     <string name="setup_download">Download %1$s</string>
     <string name="setup_download_again">Download again</string>
+    <string name="setup_expectations">This is a small model, made to fit in a pocket — built for a plane, a tunnel or a foreign SIM, where something is better than nothing. It is far weaker than the assistants that run in a data centre: it knows less, it can get things wrong with total confidence, and nothing it says is guaranteed. Check anything that matters.</string>
     <string name="setup_download_anyway">Download anyway</string>
     <string name="setup_downloading">Downloading %1$s</string>
     <string name="setup_first_load_takes_a_moment">First load takes a moment. It\'s quicker after this.</string>
@@ -247,7 +250,6 @@ Everything you start stays on this phone.</string>
     <string name="chat_get_an_answer">Get an answer</string>
     <string name="chat_continue">Continue</string>
     <string name="chat_continue_prompt">Please continue.</string>
-    <string name="chat_truncated_note">Kept short to keep the phone cool</string>
     <string name="chat_heat_dismiss">Dismiss</string>
     <string name="chat_hint_needs_model">Download a model to start</string>
     <string name="chat_hint_broken">Something went wrong — see above</string>
@@ -311,5 +313,4 @@ Everything you start stays on this phone.</string>
     <string name="photo_default_question">What does this show? If there is text, what does it say?</string>
     <string name="photo_in_message">Photo</string>
     <string name="photo_failed">Couldn\'t open that photo.</string>
-    <string name="photo_needs_gemma">Photos work with Gemma 4 E2B.</string>
 </resources>

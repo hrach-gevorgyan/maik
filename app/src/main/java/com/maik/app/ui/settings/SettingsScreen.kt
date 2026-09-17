@@ -49,11 +49,8 @@ import com.maik.app.*
 import com.maik.app.R
 import com.maik.app.BuildConfig
 import com.maik.app.data.*
-import com.maik.app.engine.*
-import com.maik.app.ui.chat.*
+import com.maik.app.ui.chat.toast
 import com.maik.app.ui.components.*
-import com.maik.app.ui.list.*
-import com.maik.app.ui.setup.*
 import com.maik.app.ui.theme.*
 
 /**
@@ -91,7 +88,8 @@ private data class Entry(
 
 private val ENTRIES = listOf(
     Entry(SettingsPage.Models, { stringResource(R.string.settings_models) }) {
-        if (it.spec.id in it.installedModels()) stringResource(R.string.settings_in_use, it.spec.label)
+        val installed = remember(it.storageVersion) { it.installedModels() }
+        if (it.spec.id in installed) stringResource(R.string.settings_in_use, it.spec.label)
         else stringResource(R.string.settings_nothing_downloaded_yet)
     },
     Entry(SettingsPage.Instructions, { stringResource(R.string.settings_instructions) }) {
@@ -470,9 +468,7 @@ private fun InstructionsPage(vm: ChatViewModel) {
     fun leave() {
         if (draft.trim().ifEmpty { DEFAULT_SYSTEM_PROMPT } != vm.systemPrompt) {
             vm.updateSystemPrompt(draft)
-            android.widget.Toast.makeText(
-                context, context.getString(R.string.settings_instructions_saved), android.widget.Toast.LENGTH_SHORT
-            ).show()
+            toast(context, context.getString(R.string.settings_instructions_saved))
         }
         vm.openSettingsPage(SettingsPage.Root)
     }
@@ -521,6 +517,10 @@ private fun InstructionsPage(vm: ChatViewModel) {
 @Composable
 private fun StoragePage(vm: ChatViewModel) {
     val scheme = MaterialTheme.colorScheme
+    val context = LocalContext.current
+    // Outside the list: a scope remembered in an item dies when the item scrolls out,
+    // which would abandon a backup halfway through writing it.
+    val scope = rememberCoroutineScope()
     var confirmWipe by remember { mutableStateOf(false) }
     // Reading the disk is not observable state; this is what makes a deletion
     // actually disappear from the list.
@@ -541,12 +541,12 @@ private fun StoragePage(vm: ChatViewModel) {
                 OutlineButton(stringResource(R.string.settings_manage_models)) { vm.openSettingsPage(SettingsPage.Models) }
             }
             item {
-                val context = LocalContext.current
-                val scope = rememberCoroutineScope()
                 val save = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
                     if (uri == null) return@rememberLauncherForActivityResult
-                    val json = vm.backupJson()
                     scope.launch {
+                        // Serialising every chat is the slow part, not the write; the
+                        // view model takes its copy here and encodes off the main thread.
+                        val json = vm.backupJson()
                         val ok = withContext(Dispatchers.IO) {
                             runCatching {
                                 context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) } != null
@@ -563,7 +563,7 @@ private fun StoragePage(vm: ChatViewModel) {
                                 context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
                             }.getOrNull()
                         }
-                        val added = text?.let(vm::restoreJson)
+                        val added = text?.let { vm.restoreJson(it) }
                         toast(
                             context,
                             if (added == null) context.getString(R.string.settings_restore_failed)
@@ -828,8 +828,4 @@ private fun ToggleRow(
             )
         )
     }
-}
-
-private fun toast(context: android.content.Context, text: String) {
-    android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
 }

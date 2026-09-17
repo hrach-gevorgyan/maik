@@ -10,7 +10,7 @@ on:
   pull_request:
     branches: [main]
     # Half an hour of emulator and a model download buys nothing for a docs change.
-    paths-ignore: ["**.md", "LICENSE", ".github/ISSUE_TEMPLATE/**"]
+    paths-ignore: ["**.md"]
   workflow_dispatch:
   workflow_call:
 

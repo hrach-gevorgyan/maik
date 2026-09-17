@@ -5,6 +5,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.maik.app.R
+import com.maik.app.ui.theme.*
 import com.maik.app.data.Ago
 import com.maik.app.data.ago
 import java.text.DateFormat

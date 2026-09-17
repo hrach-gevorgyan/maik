@@ -7,6 +7,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.SystemClock
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -21,12 +22,6 @@ import com.google.ai.edge.litertlm.SamplerConfig
 import com.google.ai.edge.litertlm.ThinkingConfig
 import com.maik.app.data.*
 import com.maik.app.engine.*
-import com.maik.app.ui.chat.*
-import com.maik.app.ui.components.*
-import com.maik.app.ui.list.*
-import com.maik.app.ui.settings.*
-import com.maik.app.ui.setup.*
-import com.maik.app.ui.theme.*
 import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -84,8 +79,18 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     /** Copies and shrinks a photo for the next message. */
     fun attachPhoto(uri: android.net.Uri, onFailed: () -> Unit) {
         viewModelScope.launch {
-            val file = withContext(Dispatchers.IO) { photos.importFrom(uri) }
+            // Claim the destination first: a save landing mid-copy would otherwise see
+            // a file no message refers to and delete it out from under the import.
+            val target = photos.reserve()
+            photosBeingImported += target.absolutePath
+            val file = try {
+                withContext(Dispatchers.IO) { photos.importFrom(uri, target) }
+            } finally {
+                photosBeingImported -= target.absolutePath
+            }
             if (file == null) onFailed() else pendingPhoto = file.absolutePath
+            // The camera's full-size original has served its purpose either way.
+            withContext(Dispatchers.IO) { photos.clearCameraCapture() }
         }
     }
 
@@ -113,6 +118,17 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var busy by mutableStateOf(false)
         private set
+
+    /**
+     * Tracks a running reply in one place.
+     *
+     * The screen watches [busy]; the process watches the same fact, so that a
+     * memory warning arriving mid-reply cannot take the model out from under it.
+     */
+    private fun markBusy(running: Boolean) {
+        busy = running
+        LocalEngine.generating = running
+    }
     var backend by mutableStateOf(Backend.NONE)
         private set
     var query by mutableStateOf("")
@@ -143,11 +159,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     var keepCool by mutableStateOf(true)
         private set
 
-    /** True while Android reports the phone is throttling, so the chat can say so. */
-    var phoneIsWarm by mutableStateOf(false)
-        private set
-
-
     /** Set when a reply was cut short to let the phone cool down. */
     var stoppedForHeat by mutableStateOf(false)
         private set
@@ -158,10 +169,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Bumped whenever a model file appears or disappears, so lists re-read the disk. */
     var storageVersion by mutableStateOf(0)
-        private set
-
-    /** Set when a download completes, so the setup screen can confirm it. */
-    var justInstalled by mutableStateOf(false)
         private set
 
     /** The reply as it streams in, published a few times a second rather than per token. */
@@ -186,16 +193,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     private var job: Job? = null
 
-    /** The model this screen asked to load. */
-    private var loadingId: String? = null
-        set(value) {
-            field = value
-            isLoadingModel = value != null
-        }
+    /** The model this screen asked to load, or null when nothing is loading. */
+    private var loadingId by mutableStateOf<String?>(null)
 
     /** Whether any model is loading, for screens that must not act on models meanwhile. */
-    var isLoadingModel by mutableStateOf(false)
-        private set
+    val isLoadingModel: Boolean get() = loadingId != null
 
     /** Bumped per load request, so only the newest one sets the stage. */
     private var loadToken = 0
@@ -233,16 +235,30 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         return Models.ALL.firstOrNull { it.id in installed } ?: store.spec
     }
 
-    val visibleConversations: List<Conversation>
-        get() {
-            val q = query.trim()
-            return filterConversations(conversations, q)
-        }
+    // Searching reads every message of every chat, and the list asks for this on each
+    // recomposition — without this, once per keystroke would become once per frame.
+    val visibleConversations: List<Conversation> by derivedStateOf {
+        filterConversations(conversations, query)
+    }
 
 
     /** False until chat history has been read from disk; the splash screen waits for it. */
     var chatsLoaded by mutableStateOf(false)
         private set
+
+    /** False when this launch could not read the history file, which makes saving unsafe. */
+    private var historyIsSafeToOverwrite = true
+
+    /** Saving is warned about once, not on every message. */
+    private var warnedAboutSaving = false
+
+    /**
+     * Photos copied in but not yet attached to anything.
+     *
+     * A save that lands during the copy would see a file no message refers to and tidy
+     * it away, leaving the composer showing a thumbnail for a photo that is gone.
+     */
+    private val photosBeingImported = mutableSetOf<String>()
 
     init {
         systemPrompt = store.systemPrompt
@@ -253,6 +269,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         shortAnswers = store.shortAnswers
         Thermal.watch(app.applicationContext)
         watchHeat()
+        // The model can be handed back to the system while maik is in the background.
+        // The open conversation belongs to that engine, so it is let go of first; the
+        // next question notices the model is away and loads it again.
+        LocalEngine.onRelease = {
+            session = null
+            sessionOwner = null
+            sessionStale = true
+        }
 
         // The process died during the last load. The GPU is the prime suspect: it can
         // crash natively, and no error handling sees that.
@@ -300,9 +324,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         // History is parsed off the main thread; a long one would otherwise stall launch.
         viewModelScope.launch {
             val saved = withContext(Dispatchers.IO) { chats.load() }
+            historyIsSafeToOverwrite = saved.trustworthy
             // Anything started in the moment before loading finished stays on top.
             val startedMeanwhile = conversations.map { it.id }.toSet()
-            conversations.addAll(saved.filterNot { it.id in startedMeanwhile })
+            conversations.addAll(saved.conversations.filterNot { it.id in startedMeanwhile })
             // First launch, with nothing downloaded yet: start where the app can be set up.
             if (screen == Screen.List && stage is Stage.NeedsModel &&
                 store.installed().isEmpty() && conversations.isEmpty()
@@ -357,7 +382,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Dismisses the "ready" confirmation and gets on with it. */
     fun acknowledgeInstall() {
-        justInstalled = false
         if (currentId == null) newChat() else screen = Screen.Chat
     }
 
@@ -543,17 +567,27 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Every chat as the same JSON maik keeps on disk. */
-    fun backupJson(): String = historyJson.encodeToString(
-        kotlinx.serialization.builtins.ListSerializer(Conversation.serializer()),
-        conversations.toList()
-    )
+    suspend fun backupJson(): String {
+        // The list is only ever changed on the main thread, so it is copied here before
+        // the encoding moves off it — reading it from IO while a reply is being
+        // appended would fail the backup with an obscure error.
+        val snapshot = conversations.toList()
+        return withContext(Dispatchers.IO) {
+            historyJson.encodeToString(
+                kotlinx.serialization.builtins.ListSerializer(Conversation.serializer()),
+                snapshot
+            )
+        }
+    }
 
     /**
      * Adds chats from a backup. A chat already here is kept as it is; nothing is ever
      * overwritten or deleted. Returns how many were added, or null if the file isn't one.
      */
-    fun restoreJson(json: String): Int? {
-        val restored = decodeConversations(historyJson, json) ?: return null
+    suspend fun restoreJson(json: String): Int? {
+        // Parsing a long history is the slow half and needs no state; merging it does,
+        // and stays here on the main thread where the list is read.
+        val restored = withContext(Dispatchers.IO) { decodeConversations(historyJson, json) } ?: return null
         val have = conversations.map { it.id }.toSet()
         val fresh = restored.filterNot { it.id in have }
         conversations.addAll(fresh)
@@ -701,7 +735,6 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private fun watchHeat() {
         viewModelScope.launch {
             Thermal.status.collect { status ->
-                phoneIsWarm = Thermal.isWarm(status)
                 if (keepCool && Thermal.isHot(status) && busy) {
                     stoppedForHeat = true
                     stop()
@@ -733,10 +766,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     Effect.None -> Unit
                     // Only confirm on the download screen; in a chat the status strip
                     // simply disappears once the model is ready.
-                    Effect.ConfirmAndLoad -> {
-                        justInstalled = true
-                        loadEngine(target)
-                    }
+                    Effect.ConfirmAndLoad -> loadEngine(target)
 
                     Effect.LoadTarget -> ensureEngineFor(target)
                 }
@@ -788,7 +818,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun loadEngine(model: ModelSpec, force: Boolean = false) {
+    private fun loadEngine(model: ModelSpec, force: Boolean = false, thenAsk: String? = null) {
         if (!force && loadingId == model.id) return
         val token = ++loadToken
         loadingId = model.id
@@ -810,6 +840,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 .onSuccess {
                     backend = it
                     stage = Stage.Ready
+                    // A question that arrived while the model was away is asked now.
+                    if (thenAsk != null) generate(thenAsk, freshSession = true)
                 }
                 .onFailure { e ->
                     if (e is CancellationException) return@onFailure
@@ -890,6 +922,14 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private fun generate(conversationId: String, freshSession: Boolean) {
         val convo = conversations.firstOrNull { it.id == conversationId } ?: return
         val model = modelFor(convo)
+        // The engine is handed back when the phone is short of memory, so "ready" and
+        // "loaded" can disagree by the time the next question arrives. Load it again
+        // and ask once it is back, rather than showing an error for something the user
+        // did not do.
+        if (stage is Stage.Ready && LocalEngine.loadedId != model.id && store.isReady(model)) {
+            loadEngine(model, force = true, thenAsk = conversationId)
+            return
+        }
         if (stage !is Stage.Ready || LocalEngine.loadedId != model.id) {
             finish(conversationId, text(R.string.model_not_loaded_yet, model.label), isError = true)
             return
@@ -901,7 +941,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
 
-        busy = true
+        markBusy(true)
         streaming = ""
         stoppedForHeat = false
         generatingId = conversationId
@@ -993,7 +1033,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         sessionStale = true
         job?.cancel()
         streaming = ""
-        busy = false
+        markBusy(false)
+        // A cancelled conversation is never answered on again, and its memory of the
+        // chat is held in the engine until it is closed. Let go of it now rather than
+        // at the next question, which may never come.
+        viewModelScope.launch { dropSession() }
         if (partial.isNotEmpty()) {
             replace(conversationId) {
                 it.copy(
@@ -1036,14 +1080,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 // cheapest answer is a shorter one. Long enough for a few paragraphs,
                 // short enough that a looping model gives up rather than cooking.
                 maxOutputToken = replyCap,
-                // A small model asked to be imaginative invents: fake functions, fake
-                // timetables, fake prices, all stated confidently. Narrow sampling keeps
-                // it to what it actually knows, which is the whole point of a pocket
-                // assistant. The seed still changes, so Regenerate gives something new.
+                // Sampling is a dial between invention and dullness, and both ends are
+                // bad: high and a small model states fake commands and prices with total
+                // confidence, low and every answer is a flat hedge. This sits above the
+                // middle, so replies have some life, and honesty is asked for in words
+                // instead. The seed changes each turn, so Regenerate really differs.
                 samplerConfig = SamplerConfig(
-                    topK = 20,
-                    topP = 0.9,
-                    temperature = 0.3,
+                    topK = 64,
+                    topP = 0.95,
+                    temperature = 0.8,
                     seed = (System.nanoTime() and 0x7fffffff).toInt()
                 ),
                 thinkingConfig = ThinkingConfig(false)
@@ -1100,7 +1145,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         truncated: Boolean = false
     ) {
         streaming = ""
-        busy = false
+        markBusy(false)
         generatingId = null
         replace(conversationId) {
             it.copy(
@@ -1141,20 +1186,51 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         if (index > 0) conversations.add(0, conversations.removeAt(index))
     }
 
+    /** Says something short, from wherever in the view model noticed it. */
+    private fun toast(resId: Int, vararg args: Any) {
+        android.widget.Toast
+            .makeText(getApplication(), text(resId, *args), android.widget.Toast.LENGTH_LONG)
+            .show()
+    }
+
     /** Saves off the main thread, in order, and outlives this screen. */
     private fun persist() {
         // Saving before history has loaded would replace it with whatever is in memory.
         if (!chatsLoaded) return
+        // The history file is there but could not be read this launch. The chats in
+        // memory are only the ones started since; writing them would delete the rest.
+        // Nothing is saved until maik is restarted, and that must be said out loud.
+        if (!historyIsSafeToOverwrite) {
+            if (!warnedAboutSaving) {
+                warnedAboutSaving = true
+                toast(R.string.chat_history_unreadable)
+            }
+            return
+        }
         val snapshot = conversations.toList()
-        val kept = snapshot.flatMap { c -> c.messages.mapNotNull { it.imagePath } }.toSet() + listOfNotNull(pendingPhoto)
+        val kept = snapshot.flatMap { c -> c.messages.mapNotNull { it.imagePath } }.toSet() +
+            listOfNotNull(pendingPhoto) + photosBeingImported
         LocalEngine.scope.launch(Dispatchers.IO) { photos.keepOnly(kept) }
-        LocalEngine.scope.launch(LocalEngine.saves) { chats.save(snapshot) }
+        LocalEngine.scope.launch(LocalEngine.saves) {
+            val written = chats.save(snapshot)
+            // A phone with no room left is the usual reason. Saying nothing would let
+            // someone keep chatting for an hour and lose all of it at the next launch.
+            if (!written && !warnedAboutSaving) {
+                warnedAboutSaving = true
+                withContext(Dispatchers.Main) { toast(R.string.chat_could_not_save) }
+            }
+        }
     }
 
     override fun onCleared() {
         super.onCleared()
+        val wasBusy = busy
+        // This screen is gone but the process is not: leaving the running flag set
+        // would tell the engine a reply is in progress forever, and it would never be
+        // handed back under memory pressure.
+        markBusy(false)
         // Whatever was written so far is kept, exactly as if Stop had been tapped.
-        if (busy) {
+        if (wasBusy) {
             val partial = liveReply.toString().trim()
             val owner = generatingId
             if (partial.isNotEmpty() && owner != null) {
@@ -1169,7 +1245,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         session = null
         sessionOwner = null
         val running = job
-        if (busy) runCatching { old.cancelProcess() }
+        if (wasBusy) runCatching { old.cancelProcess() }
         LocalEngine.scope.launch {
             // Closing while the runtime still decodes would free memory it's using.
             running?.join()

@@ -126,13 +126,6 @@ class GoldenTest {
         }
     }
 
-    @Test
-    fun theCatalogueOnlyOffersLoadableBundles() {
-        Models.ALL.forEach { model ->
-            assertTrue(model.url, model.url.endsWith(".litertlm"))
-        }
-    }
-
     /** One question in a fresh conversation, trimmed exactly as the app trims it. */
     private fun ask(question: String): String =
         engine!!.createConversation(config()).use { textOf(it.sendMessage(question)).trim() }

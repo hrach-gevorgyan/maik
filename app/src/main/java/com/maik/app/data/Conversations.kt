@@ -5,12 +5,6 @@ import androidx.compose.runtime.Immutable
 import androidx.core.util.AtomicFile
 import com.maik.app.*
 import com.maik.app.engine.*
-import com.maik.app.ui.chat.*
-import com.maik.app.ui.components.*
-import com.maik.app.ui.list.*
-import com.maik.app.ui.settings.*
-import com.maik.app.ui.setup.*
-import com.maik.app.ui.theme.*
 import java.io.File
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -38,7 +32,6 @@ data class Conversation(
     val id: String,
     val title: String,
     val messages: List<Message> = emptyList(),
-    val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     /**
      * Which model this chat is held with. Null means "whatever is currently
@@ -61,6 +54,19 @@ data class Conversation(
     }
 }
 
+/** How chat history is written and read: tolerant of fields added or removed later. */
+val historyJson = Json { ignoreUnknownKeys = true; encodeDefaults = true; coerceInputValues = true }
+
+/**
+ * What came back from reading the history file.
+ *
+ * [trustworthy] is the important part. An empty list means two very different things:
+ * a new install with no chats, or a file that is there but could not be read this
+ * time. Saving over the second one turns a temporary disk error into permanent loss,
+ * so the caller is told which it is rather than being left to guess.
+ */
+data class History(val conversations: List<Conversation>, val trustworthy: Boolean)
+
 /**
  * Whole-file JSON persistence. A chat history is a few hundred KB at worst, so a
  * database would be ceremony.
@@ -68,47 +74,50 @@ data class Conversation(
  * Writes go through [AtomicFile]: a crash mid-save leaves the previous file intact
  * instead of a half-written one that would wipe every chat on the next launch.
  */
-/** How chat history is written and read: tolerant of fields added or removed later. */
-val historyJson = Json { ignoreUnknownKeys = true; encodeDefaults = true; coerceInputValues = true }
-
 class ChatStore(context: Context) {
 
     private val file = File(context.filesDir, "conversations.json")
     private val atomic = AtomicFile(file)
     private val json = historyJson
 
-    fun load(): List<Conversation> {
+    fun load(): History {
         // No early exists() check: after a crash mid-save only the backup may be on
         // disk, and reading through AtomicFile is what restores it.
         val text = try {
             String(atomic.readFully(), Charsets.UTF_8)
         } catch (_: java.io.FileNotFoundException) {
-            return emptyList()
+            return History(emptyList(), trustworthy = true)
         } catch (_: Exception) {
-            return setAside()
+            // The file exists and the disk would not give it up. Whatever is in there
+            // is still the user's history; nothing may overwrite it on this run.
+            setAside()
+            return History(emptyList(), trustworthy = false)
         }
         val whole = runCatching { json.decodeFromString<List<Conversation>>(text) }.getOrNull()
-        if (whole != null) return whole.sortedByDescending { it.updatedAt }
+        if (whole != null) return History(whole.sortedByDescending { it.updatedAt }, trustworthy = true)
         // The file as a whole didn't read. Keep every conversation that still does, and a
         // copy of the original in case the rest can be recovered by hand.
         setAside()
-        return decodeConversations(json, text).orEmpty().sortedByDescending { it.updatedAt }
+        val salvaged = decodeConversations(json, text).orEmpty().sortedByDescending { it.updatedAt }
+        return History(salvaged, trustworthy = salvaged.isNotEmpty())
     }
 
     /** Keeps one copy of an unreadable history, replacing any older one. */
-    private fun setAside(): List<Conversation> {
+    private fun setAside() {
         runCatching { file.copyTo(File(file.parentFile, "conversations.corrupt.json"), overwrite = true) }
-        return emptyList()
     }
 
-    fun save(conversations: List<Conversation>) {
+    /** False when the write failed, which on a full phone is the likely case. */
+    fun save(conversations: List<Conversation>): Boolean {
         var stream: java.io.FileOutputStream? = null
-        try {
+        return try {
             stream = atomic.startWrite()
             stream.write(json.encodeToString(conversations).toByteArray(Charsets.UTF_8))
             atomic.finishWrite(stream)
+            true
         } catch (_: Exception) {
             stream?.let { atomic.failWrite(it) }
+            false
         }
     }
 }
@@ -124,6 +133,22 @@ fun filterConversations(all: List<Conversation>, query: String): List<Conversati
     return ordered.filter { convo ->
         convo.title.contains(q, ignoreCase = true) ||
             convo.messages.any { it.text.contains(q, ignoreCase = true) }
+    }
+}
+
+/**
+ * A stable identity per message, for the chat list.
+ *
+ * Position cannot be used: deleting or editing a message renumbers everything below
+ * it, and the rows animate as though the wrong messages had changed. The timestamp is
+ * the natural identity, but two messages written in the same millisecond would share
+ * it — and duplicate keys are a crash, not a glitch — so any repeat is numbered.
+ */
+fun messageKeys(messages: List<Message>): List<String> {
+    val seen = mutableMapOf<Long, Int>()
+    return messages.map { message ->
+        val repeat = seen.merge(message.at, 1, Int::plus)!! - 1
+        if (repeat == 0) message.at.toString() else "${message.at}#$repeat"
     }
 }
 

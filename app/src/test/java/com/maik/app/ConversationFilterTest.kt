@@ -43,6 +43,21 @@ class ConversationFilterTest {
     }
 
     @Test
+    fun `message keys stay unique even within one millisecond`() {
+        val messages = listOf(
+            Message("first", fromUser = true, at = 1000L),
+            Message("same instant", fromUser = false, at = 1000L),
+            Message("also same instant", fromUser = false, at = 1000L),
+            Message("later", fromUser = true, at = 1001L)
+        )
+        val keys = com.maik.app.data.messageKeys(messages)
+        assertEquals(messages.size, keys.distinct().size)
+        // The first of a timestamp keeps the plain value, so nothing re-keys when a
+        // later message happens to land in the same millisecond.
+        assertEquals("1000", keys.first())
+    }
+
+    @Test
     fun `read aloud says the words, not the markdown`() {
         val reply = "## Route\n\n- Take the **U2** to `Alexanderplatz`\n- Walk *five* minutes"
         assertEquals("Route Take the U2 to Alexanderplatz Walk five minutes", speakableText(reply))

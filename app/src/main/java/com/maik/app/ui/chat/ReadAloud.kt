@@ -22,14 +22,14 @@ class ReadAloud internal constructor() {
         internal set
 
     internal var engine: TextToSpeech? = null
-    internal var ready = false
 
-    /** False when the phone has no speech engine at all. */
-    val available: Boolean get() = ready
+    /** False when the phone has no speech engine at all; written only by the setup below. */
+    var available = false
+        internal set
 
     fun speak(at: Long, text: String) {
         val tts = engine ?: return
-        if (!ready) return
+        if (!available) return
         speakingAt = at
         tts.speak(speakableText(text), TextToSpeech.QUEUE_FLUSH, null, at.toString())
     }
@@ -47,8 +47,8 @@ fun rememberReadAloud(): ReadAloud {
     DisposableEffect(context) {
         var tts: TextToSpeech? = null
         tts = TextToSpeech(context.applicationContext) { status ->
-            reader.ready = status == TextToSpeech.SUCCESS
-            if (reader.ready) {
+            reader.available = status == TextToSpeech.SUCCESS
+            if (reader.available) {
                 runCatching { tts?.language = Locale.getDefault() }
             }
         }
@@ -68,7 +68,7 @@ fun rememberReadAloud(): ReadAloud {
             tts.stop()
             tts.shutdown()
             reader.engine = null
-            reader.ready = false
+            reader.available = false
             reader.speakingAt = null
         }
     }

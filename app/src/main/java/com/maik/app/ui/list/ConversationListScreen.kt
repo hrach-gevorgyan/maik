@@ -48,10 +48,8 @@ import com.maik.app.*
 import com.maik.app.R
 import com.maik.app.data.*
 import com.maik.app.engine.*
-import com.maik.app.ui.chat.*
+import com.maik.app.ui.chat.shareText
 import com.maik.app.ui.components.*
-import com.maik.app.ui.settings.*
-import com.maik.app.ui.setup.*
 import com.maik.app.ui.theme.*
 
 /* ================= conversation list ================= */
@@ -100,7 +98,7 @@ fun ConversationListScreen(vm: ChatViewModel) {
                     Text(
                         stringResource(R.string.list_nothing_matches, vm.query.trim()),
                         style = MaterialTheme.typography.bodyLarge,
-                        color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
+                        color = scheme.muted
                     )
                 }
 
@@ -209,10 +207,15 @@ fun ConversationListScreen(vm: ChatViewModel) {
             containerColor = scheme.surfaceVariant,
             title = { DialogTitle(stringResource(R.string.list_rename)) },
             text = {
-                RenameField(
+                EditorField(
                     value = draft,
                     onValueChange = { draft = it },
-                    onDone = ::save,
+                    label = stringResource(R.string.list_rename),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { save() }),
                     modifier = Modifier.focusRequester(focus)
                 )
                 // The dialog has its own window; wait for its first frame before focusing.
@@ -276,7 +279,7 @@ private fun EmptyList() {
                 Text(
                     stringResource(R.string.list_no_conversations_yet_everything_you),
                     style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f)
+                    color = MaterialTheme.colorScheme.muted
                 )
             }
         }
@@ -339,7 +342,7 @@ private fun ConversationRow(
                 Text(
                     convo.preview,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = scheme.onSurfaceVariant.copy(alpha = 0.64f),
+                    color = scheme.muted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -349,7 +352,7 @@ private fun ConversationRow(
         Text(
             if (writing) stringResource(R.string.chat_writing) else relativeTime(convo.updatedAt),
             style = MaterialTheme.typography.labelSmall,
-            color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
+            color = scheme.muted
         )
     }
 }
@@ -414,7 +417,7 @@ private fun SearchField(value: String, onValueChange: (String) -> Unit) {
                 Text(
                     stringResource(R.string.list_search_conversations),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = scheme.onSurfaceVariant.copy(alpha = 0.64f)
+                    color = scheme.muted
                 )
             }
             BasicTextField(
@@ -449,38 +452,3 @@ private fun SearchField(value: String, onValueChange: (String) -> Unit) {
     }
 }
 
-/** A single-line field for renaming, with the text selected and Enter to save. */
-@Composable
-private fun RenameField(
-    value: TextFieldValue,
-    onValueChange: (TextFieldValue) -> Unit,
-    onDone: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val scheme = MaterialTheme.colorScheme
-    val label = stringResource(R.string.list_rename)
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(scheme.background)
-            .border(1.dp, scheme.outline, RoundedCornerShape(14.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp)
-    ) {
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
-            cursorBrush = SolidColor(scheme.primary),
-            keyboardOptions = KeyboardOptions(
-                capitalization = KeyboardCapitalization.Sentences,
-                imeAction = ImeAction.Done
-            ),
-            keyboardActions = KeyboardActions(onDone = { onDone() }),
-            modifier = modifier
-                .fillMaxWidth()
-                .semantics { contentDescription = label }
-        )
-    }
-}

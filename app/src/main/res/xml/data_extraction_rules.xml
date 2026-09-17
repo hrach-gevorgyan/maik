@@ -1,9 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Chats and settings are backed up; multi-gigabyte models are downloaded again. -->
+<!--
+  maik says everything stays on this phone, so nothing personal leaves it: chats and
+  attached photos are excluded from cloud backup. Settings still travel, and a
+  direct phone-to-phone transfer — which never touches a server — carries the chats
+  and photos across, but never the multi-gigabyte models, which are fetched again.
+-->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="file" path="models/" />
         <exclude domain="file" path="litertlm-cache/" />
+        <exclude domain="file" path="images/" />
+        <exclude domain="file" path="conversations.json" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="file" path="models/" />

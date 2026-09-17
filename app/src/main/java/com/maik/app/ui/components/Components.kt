@@ -33,10 +33,6 @@ import com.maik.app.*
 import com.maik.app.R
 import com.maik.app.data.*
 import com.maik.app.engine.*
-import com.maik.app.ui.chat.*
-import com.maik.app.ui.list.*
-import com.maik.app.ui.settings.*
-import com.maik.app.ui.setup.*
 import com.maik.app.ui.theme.*
 
 @Composable
@@ -198,7 +194,7 @@ fun BigButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
         Text(
             label,
             style = MaterialTheme.typography.labelLarge,
-            color = if (enabled) scheme.onPrimary else scheme.onSurfaceVariant.copy(alpha = 0.64f)
+            color = if (enabled) scheme.onPrimary else scheme.muted
         )
     }
 }
@@ -211,7 +207,7 @@ fun QuietAction(label: String, fill: Boolean = true, onClick: () -> Unit) {
         Text(
             label,
             style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.64f),
+            color = MaterialTheme.colorScheme.muted,
             modifier = Modifier
                 .minimumInteractiveComponentSize()
                 .clip(CircleShape)
@@ -279,6 +275,22 @@ fun DialogTitle(text: String) {
     )
 }
 
+/** The box every text field in maik sits in: one radius, one border, one padding. */
+@Composable
+private fun FieldFrame(content: @Composable () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(scheme.background)
+            .border(1.dp, scheme.outline, RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp)
+    ) {
+        content()
+    }
+}
+
 @Composable
 fun EditorField(
     value: String,
@@ -290,19 +302,42 @@ fun EditorField(
     onValueChange: (String) -> Unit
 ) {
     val scheme = MaterialTheme.colorScheme
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(scheme.background)
-            .border(1.dp, scheme.outline, RoundedCornerShape(14.dp))
-            .padding(horizontal = 14.dp, vertical = 12.dp)
-    ) {
+    FieldFrame {
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
             singleLine = singleLine,
             maxLines = if (singleLine) 1 else 10,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
+            cursorBrush = SolidColor(scheme.primary),
+            keyboardOptions = keyboardOptions,
+            keyboardActions = keyboardActions,
+            modifier = modifier
+                .fillMaxWidth()
+                .semantics { if (label != null) contentDescription = label }
+        )
+    }
+}
+
+/**
+ * The same field, for the one place that needs the cursor position as well: renaming
+ * opens with the whole title selected, which a plain String cannot express.
+ */
+@Composable
+fun EditorField(
+    value: androidx.compose.ui.text.input.TextFieldValue,
+    modifier: Modifier = Modifier,
+    label: String? = null,
+    keyboardOptions: androidx.compose.foundation.text.KeyboardOptions = androidx.compose.foundation.text.KeyboardOptions.Default,
+    keyboardActions: androidx.compose.foundation.text.KeyboardActions = androidx.compose.foundation.text.KeyboardActions.Default,
+    onValueChange: (androidx.compose.ui.text.input.TextFieldValue) -> Unit
+) {
+    val scheme = MaterialTheme.colorScheme
+    FieldFrame {
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = scheme.onSurface),
             cursorBrush = SolidColor(scheme.primary),
             keyboardOptions = keyboardOptions,

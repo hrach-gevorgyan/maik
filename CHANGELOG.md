@@ -7,6 +7,57 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 3.0.0 — 17 September 2026
+
+**The baseline.** Everything up to here was maik finding its shape. This release is
+the version the rest will be measured against: audited end to end, cleaned out, and
+documented.
+
+**Answers have their character back.** 2.9.3 cured the confident nonsense by making
+maik cautious, and overshot — it started hedging everything and saying "I don't know"
+where it knew perfectly well. The dial is now set above the middle rather than at the
+bottom: replies commit to an answer, keep their opinions, and flag uncertainty in a
+clause rather than a paragraph. Honesty is asked for in the instructions instead of
+bought by making the model timid.
+
+**Said plainly, once.** The first-run screen now states what maik is before you spend
+2.6 GB on it: a pocket-sized model for a plane, a tunnel or a foreign SIM, far weaker
+than an assistant that runs in a data centre, confidently wrong sometimes, and never
+guaranteed. It is said there and nowhere else — no nagging banners.
+
+**Your chats are no longer copied to Google.** Android's cloud backup was taking the
+conversation history and every attached photo along with the settings. For an app
+whose whole promise is that nothing leaves the phone, that was the worst thing in it.
+Chats and photos are now excluded; settings still travel, and a direct phone-to-phone
+transfer still carries everything across.
+
+**maik gives the model back when the phone needs the memory.** Leaving maik for the
+camera used to leave 2.6 GB sitting there, so the system's only way to reclaim it was
+to kill maik outright — losing the conversation with it. The model is now released
+when Android says memory is short, unless a reply is being written, and loads again on
+the next question.
+
+**A bad moment can no longer cost you your chats.** If the history file cannot be read
+at launch, maik keeps a copy aside and refuses to save over it for the rest of the run
+instead of quietly replacing it with an empty one. And if a save fails — usually a full
+phone — it now says so rather than staying silent until the next launch.
+
+**Photos behave.** A photo taken with the camera survives Android killing the app
+while the camera is open, an import can no longer be tidied away mid-copy, and the
+full-size original is deleted once the small copy has been made.
+
+**Smaller things.** Messages keep their identity when one above them is deleted, so
+animations play on the right row. The conversation list stops re-searching every chat
+on every frame. Settings and the first-run screen stop checking the disk on every
+recomposition. Backing up and restoring no longer freezes the screen on a long
+history, and scrolling away mid-backup no longer truncates the file.
+
+**Underneath.** Dead code, duplicate helpers and stale build settings removed; the
+documentation rewritten and split into `docs/`, covering how it works, the models, how
+to contribute and how to release.
+
+---
+
 ## 2.9.3 — 17 September 2026
 
 **maik stops making things up.**
