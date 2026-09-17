@@ -7,6 +7,14 @@ when maik gains something, the last one when something gets fixed.
 
 ---
 
+## 2.9.1 — 17 September 2026
+
+- **No "Not now" on a fresh install.** With no model there was nothing to look at, and it
+  led to an empty chat list that couldn't answer anything. Reached from a chat or from
+  Settings, the download screen still offers Back.
+
+---
+
 ## 2.9.0 — 17 September 2026
 
 **Ask about a photo.**

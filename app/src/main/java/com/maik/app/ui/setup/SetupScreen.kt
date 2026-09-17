@@ -226,9 +226,12 @@ fun SetupScreen(vm: ChatViewModel) {
         }
         }
 
-        if (vm.stage !is Stage.Ready) {
+        // On a fresh install there is nowhere to go back to and nothing to look at
+        // without a model, so no exit is offered. Reached from a chat or Settings, Back
+        // returns there.
+        if (vm.stage !is Stage.Ready && !(vm.conversations.isEmpty() && vm.installedModels().isEmpty())) {
             Spacer(Modifier.height(24.dp))
-            QuietAction(if (vm.conversations.isEmpty()) stringResource(R.string.setup_not_now) else stringResource(R.string.setup_back), onClick = vm::back)
+            QuietAction(stringResource(R.string.setup_back), onClick = vm::back)
         }
     }
 
